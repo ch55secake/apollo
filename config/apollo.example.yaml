@@ -1,0 +1,16 @@
+prometheus:
+  url: http://localhost:9090
+  bearer_token: ""
+
+dashboards:
+  # Use "file" for a JSON file or directory, or "grafana" for the Grafana API.
+  source: file
+  path: ./dashboards
+  grafana:
+    url: http://localhost:3000
+    bearer_token: ""
+
+ui:
+  refresh_interval: 30s
+  default_time_range: now-6h
+  max_data_points: 120

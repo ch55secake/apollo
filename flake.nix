@@ -26,7 +26,7 @@
             version = "0.1.0";
             src = ./.;
             go = pkgs.go_1_26;
-            vendorHash = null;
+            vendorHash = "sha256-HoxjQsgIenteAoMEqE/0vhmr2hjjcIIhPALSDYDcJao=";
             subPackages = [ "cmd/apollo" ];
           };
         }
