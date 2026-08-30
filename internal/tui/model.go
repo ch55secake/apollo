@@ -9,6 +9,7 @@ import (
 	"github.com/ch55secake/apollo/internal/dashboard"
 	"github.com/ch55secake/apollo/internal/prometheus"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -36,11 +37,13 @@ type Model struct {
 	width       int
 	height      int
 	list        list.Model
+	loadInput   textinput.Model
 	queryScroll viewport.Model
 
 	listLoading bool
 	listError   error
 	summaries   []dashboard.DashboardSummary
+	loadMode    bool
 
 	selectedSummary dashboard.DashboardSummary
 	dashboard       *dashboard.Dashboard
@@ -97,12 +100,17 @@ func New(source dashboard.Source, querier prometheus.Querier, options Options) M
 	dashboardList := list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	dashboardList.Title = "Apollo dashboards"
 	dashboardList.SetStatusBarItemName("dashboard", "dashboards")
+	loadInput := textinput.New()
+	loadInput.Prompt = "Path: "
+	loadInput.Placeholder = "path to a dashboard JSON file or directory"
+	loadInput.CharLimit = 4096
 
 	return Model{
 		source:       source,
 		querier:      querier,
 		options:      options,
 		list:         dashboardList,
+		loadInput:    loadInput,
 		queryScroll:  viewport.New(0, 0),
 		listLoading:  true,
 		queryResults: make(map[string]prometheus.Result),
@@ -120,6 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = typed.Width
 		m.height = typed.Height
 		m.list.SetSize(typed.Width, typed.Height)
+		m.loadInput.Width = max(20, typed.Width-4)
 		m.queryScroll.Width = typed.Width
 		m.queryScroll.Height = max(1, typed.Height-4)
 		if m.screen == queryScreen {
@@ -189,6 +198,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.loadMode {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.loadMode = false
+				m.loadInput.Blur()
+				m.loadInput.Reset()
+				return m, nil
+			case "enter":
+				path := strings.TrimSpace(m.loadInput.Value())
+				if path == "" {
+					m.listError = fmt.Errorf("dashboard path must not be empty")
+					return m, nil
+				}
+				source, err := dashboard.NewFileSource(path)
+				if err != nil {
+					m.listError = err
+					return m, nil
+				}
+				m.source = source
+				m.loadMode = false
+				m.loadInput.Blur()
+				m.loadInput.Reset()
+				m.listLoading = true
+				m.listError = nil
+				m.summaries = nil
+				m.list.SetItems(nil)
+				return m, m.loadDashboardsCmd()
+			}
+		}
+		var cmd tea.Cmd
+		m.loadInput, cmd = m.loadInput.Update(msg)
+		return m, cmd
+	}
+
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "ctrl+c":
@@ -198,6 +244,14 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.listLoading = true
 				m.listError = nil
 				return m, m.loadDashboardsCmd()
+			}
+		case "l":
+			if !m.list.SettingFilter() {
+				m.loadMode = true
+				m.listError = nil
+				m.loadInput.Reset()
+				m.loadInput.Focus()
+				return m, textinput.Blink
 			}
 		case "enter":
 			if !m.list.SettingFilter() {

@@ -34,14 +34,25 @@ func (m Model) View() string {
 }
 
 func (m Model) listView() string {
+	if m.loadMode {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			titleStyle.Render("Load dashboard"),
+			mutedStyle.Render("Enter a JSON file or directory path."),
+			m.loadInput.View(),
+			"",
+			m.list.View(),
+			footer("enter load   esc cancel   ctrl+c quit"),
+		)
+	}
 	if m.listError == nil && !m.listLoading {
-		return m.list.View()
+		return lipgloss.JoinVertical(lipgloss.Left, m.list.View(), footer("l load path   r refresh   ctrl+c quit"))
 	}
 	status := "Loading dashboards..."
 	if m.listError != nil {
 		status = errorStyle.Render("Unable to load dashboards: " + m.listError.Error())
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, status, m.list.View())
+	return lipgloss.JoinVertical(lipgloss.Left, status, m.list.View(), footer("l load path   r refresh   ctrl+c quit"))
 }
 
 func (m Model) dashboardView() string {

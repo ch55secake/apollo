@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,32 @@ func TestModelNavigatesDashboardAndQueryScreens(t *testing.T) {
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	if m.screen != dashboardDetailScreen {
 		t.Fatalf("expected back navigation to dashboard, got %d", m.screen)
+	}
+}
+
+func TestModelLoadsDashboardPathFromList(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = update(t, m, dashboardsLoadedMsg{})
+
+	m, _ = updateWithCmd(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	if !m.loadMode {
+		t.Fatal("expected dashboard load prompt")
+	}
+
+	path := filepath.Join("..", "dashboard", "testdata", "classic.json")
+	m, _ = updateWithCmd(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(path)})
+	m, loadCmd := updateWithCmd(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.loadMode || loadCmd == nil {
+		t.Fatalf("expected load command after entering dashboard path")
+	}
+	if _, ok := m.source.(*dashboard.FileSource); !ok {
+		t.Fatalf("expected file source, got %T", m.source)
+	}
+
+	m = update(t, m, loadCmd())
+	if m.listLoading || len(m.summaries) != 1 {
+		t.Fatalf("expected one loaded dashboard, loading=%t summaries=%d", m.listLoading, len(m.summaries))
 	}
 }
 

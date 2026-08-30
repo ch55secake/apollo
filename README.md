@@ -12,6 +12,9 @@ URL, and point `dashboards.path` at a Grafana JSON file or directory:
 go run ./cmd/apollo --config config.yaml
 ```
 
+From the dashboard list, press `l` to load a dashboard JSON file or directory
+interactively. Use `enter` to open a listed dashboard.
+
 To load dashboards from Grafana instead, set `dashboards.source` to `grafana`
 and configure `dashboards.grafana.url` and its bearer token.
 
@@ -28,5 +31,7 @@ features are left as raw panel data or shown as placeholders.
 
 ```sh
 make check
+make compile
+./bin/apollo --config config.yaml
 nix develop
 ```

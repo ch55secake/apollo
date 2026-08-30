@@ -3,6 +3,7 @@
 #
 # Binaries for programs and plugins
 /apollo
+/bin/
 /result
 *.exe
 *.exe~
