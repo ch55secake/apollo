@@ -13,6 +13,14 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "init" {
+		if err := initConfig(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "apollo: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	flags := pflag.NewFlagSet("apollo", pflag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	configPath := flags.StringP("config", "c", "", "path to the Apollo configuration file")
@@ -49,6 +57,27 @@ func main() {
 		fmt.Fprintf(os.Stderr, "apollo: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func initConfig(args []string) error {
+	flags := pflag.NewFlagSet("apollo init", pflag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	configPath := flags.StringP("config", "c", "", "path for the new Apollo configuration file")
+	if err := flags.Parse(args); err != nil {
+		if err == pflag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() > 0 {
+		return fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+	path, err := config.Init(*configPath)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("created Apollo config at %s\n", path)
+	return nil
 }
 
 func dashboardSource(cfg config.Config) (dashboard.Source, error) {

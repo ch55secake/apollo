@@ -51,6 +51,65 @@ func TestLoadMissingExplicitConfig(t *testing.T) {
 	}
 }
 
+func TestDefaultPathUsesXDGConfigHome(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(configHome, "apollo", "config.yaml")
+	if path != expected {
+		t.Fatalf("expected %q, got %q", expected, path)
+	}
+}
+
+func TestLoadConfigFromXDGConfigHome(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Chdir(t.TempDir())
+	path := filepath.Join(configHome, "apollo", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("prometheus:\n  url: https://prometheus.example.test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Prometheus.URL != "https://prometheus.example.test" {
+		t.Fatalf("unexpected Prometheus URL: %s", cfg.Prometheus.URL)
+	}
+}
+
+func TestInitConfig(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	path, err := Init("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(configHome, "apollo", "config.yaml")
+	if path != expected {
+		t.Fatalf("expected %q, got %q", expected, path)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != defaultConfig {
+		t.Fatalf("unexpected initialized config:\n%s", contents)
+	}
+	if _, err := Init(""); err == nil {
+		t.Fatal("expected initializing an existing config to fail")
+	}
+}
+
 func TestConfigValidateRejectsUnknownSource(t *testing.T) {
 	v := viper.New()
 	v.SetConfigType("yaml")

@@ -41,17 +41,33 @@ type UIConfig struct {
 	MaxDataPoints    int           `mapstructure:"max_data_points"`
 }
 
+const defaultConfigFile = "config.yaml"
+
+const defaultConfig = `prometheus:
+  url: http://localhost:9090
+  bearer_token: ""
+
+dashboards:
+  source: file
+  path: ./dashboards
+  grafana:
+    url: http://localhost:3000
+    bearer_token: ""
+
+ui:
+  refresh_interval: 30s
+  default_time_range: now-6h
+  max_data_points: 120
+`
+
 func Load(configPath string) (Config, error) {
 	v := newViper()
 	if configPath != "" {
 		v.SetConfigFile(configPath)
 	} else {
 		v.AddConfigPath(".")
-		if home, err := os.UserHomeDir(); err == nil {
-			v.AddConfigPath(filepath.Join(home, ".config", "apollo"))
-		}
-		if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
-			v.AddConfigPath(filepath.Join(configHome, "apollo"))
+		if path, err := DefaultPath(); err == nil {
+			v.AddConfigPath(filepath.Dir(path))
 		}
 	}
 
@@ -73,6 +89,47 @@ func Load(configPath string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func DefaultPath() (string, error) {
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home: %w", err)
+		}
+		configHome = filepath.Join(home, ".config")
+	}
+	return filepath.Join(configHome, "apollo", defaultConfigFile), nil
+}
+
+func Init(configPath string) (string, error) {
+	if configPath == "" {
+		var err error
+		configPath, err = DefaultPath()
+		if err != nil {
+			return "", err
+		}
+	}
+	configPath = filepath.Clean(configPath)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		return "", fmt.Errorf("create config directory: %w", err)
+	}
+	file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return "", fmt.Errorf("config file already exists: %s", configPath)
+		}
+		return "", fmt.Errorf("create config file: %w", err)
+	}
+	if _, err := file.WriteString(defaultConfig); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("write config file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close config file: %w", err)
+	}
+	return configPath, nil
 }
 
 func newViper() *viper.Viper {

@@ -13,7 +13,7 @@
 - Run `go mod tidy` after changing module dependencies.
 - Run `make build` and `make test` for build and test verification; these wrap the commands used by shared CI.
 - Use `nix develop` for the flake-provided Go development shell and `nix flake check --no-build` to evaluate flake outputs.
-- The Makefile provides `make build`, `make test`, `make tidy`, `make check`, and `make dev-shell` equivalents.
+- The Makefile provides `make build`, `make compile`, `make test`, `make tidy`, `make check`, and `make dev-shell` equivalents.
 
 ## GitHub Automation
 

@@ -5,12 +5,22 @@ Grafana dashboard JSON.
 
 ## Quick start
 
-Copy `config/apollo.example.yaml` to `config.yaml`, configure the Prometheus
-URL, and point `dashboards.path` at a Grafana JSON file or directory:
+Initialize the default user configuration at
+`$XDG_CONFIG_HOME/apollo/config.yaml` (or `~/.config/apollo/config.yaml`):
 
 ```sh
-go run ./cmd/apollo --config config.yaml
+apollo init
 ```
+
+Edit the Prometheus URL and point `dashboards.path` at a Grafana JSON file or
+directory, then start Apollo:
+
+```sh
+apollo
+```
+
+Use `--config PATH` to load a specific configuration file. The current working
+directory's `config.yaml` takes precedence over the XDG configuration.
 
 From the dashboard list, press `l` to load a dashboard JSON file or directory
 interactively. Use `enter` to open a listed dashboard.
@@ -23,6 +33,12 @@ from the flake:
 
 ```sh
 nix run ch55secake/apollo
+```
+
+The init command is also available through the flake:
+
+```sh
+nix run ch55secake/apollo -- init
 ```
 
 Use the dashboard list to filter and select a dashboard. From a dashboard,
@@ -39,6 +55,6 @@ features are left as raw panel data or shown as placeholders.
 ```sh
 make check
 make compile
-./bin/apollo --config config.yaml
+./bin/apollo
 nix develop
 ```
