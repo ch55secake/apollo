@@ -18,6 +18,13 @@ interactively. Use `enter` to open a listed dashboard.
 To load dashboards from Grafana instead, set `dashboards.source` to `grafana`
 and configure `dashboards.grafana.url` and its bearer token.
 
+Once Apollo is available from the repository's default branch, run it directly
+from the flake:
+
+```sh
+nix run ch55secake/apollo
+```
+
 Use the dashboard list to filter and select a dashboard. From a dashboard,
 use `j` and `k` to select a panel and `enter` to inspect its PromQL query and
 result. Press `r` to refresh and `esc` to go back.
