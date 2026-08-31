@@ -24,7 +24,7 @@ func NewGrafanaSource(rawURL, token string) (*GrafanaSource, error) {
 		return nil, fmt.Errorf("invalid Grafana URL")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("Grafana URL must use http or https")
+		return nil, fmt.Errorf("grafana URL must use http or https")
 	}
 	return &GrafanaSource{
 		baseURL: parsed,
@@ -103,10 +103,12 @@ func (s *GrafanaSource) request(ctx context.Context, path string, query url.Valu
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() {
+		_ = response.Body.Close()
+	}()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("Grafana returned %s: %s", response.Status, strings.TrimSpace(string(body)))
+		return fmt.Errorf("grafana returned %s: %s", response.Status, strings.TrimSpace(string(body)))
 	}
 	if err := json.NewDecoder(response.Body).Decode(result); err != nil {
 		return fmt.Errorf("decode Grafana response: %w", err)

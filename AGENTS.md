@@ -2,7 +2,7 @@
 
 ## Project
 
-- This is the Go module `github.com/ch55secake/apollo`, targeting Go `1.26.5`.
+- This is the Go module `github.com/ch55secake/apollo`, targeting Go `1.26.6`.
 - The intended program is a dashboarding TUI similar to Grafana, using Prometheus as a data source.
 - The executable entrypoint is `cmd/apollo`; dashboard, data source, and orchestration packages should live under `internal/` as the project develops.
 - Dashboard definitions are normalized under `internal/dashboard`, Prometheus access lives under `internal/prometheus`, and Bubble Tea models live under `internal/tui`.
