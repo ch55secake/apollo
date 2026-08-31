@@ -4,7 +4,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs, ... }:
     let
       systems = [
         "aarch64-darwin"
@@ -26,8 +26,19 @@
             version = "0.1.0";
             src = ./.;
             go = pkgs.go_1_26;
-            vendorHash = null;
+            vendorHash = "sha256-HoxjQsgIenteAoMEqE/0vhmr2hjjcIIhPALSDYDcJao=";
             subPackages = [ "cmd/apollo" ];
+            meta.mainProgram = "apollo";
+          };
+        }
+      );
+
+      apps = forAllSystems (
+        system:
+        {
+          default = {
+            type = "app";
+            program = "${self.packages.${system}.default}/bin/apollo";
           };
         }
       );

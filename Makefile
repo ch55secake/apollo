@@ -1,9 +1,13 @@
 GO ?= go
 
-.PHONY: build test tidy check dev-shell
+.PHONY: build compile test tidy check dev-shell
 
 build:
 	$(GO) build ./...
+
+compile:
+	mkdir -p bin
+	$(GO) build -o bin/apollo ./cmd/apollo
 
 test:
 	@set -e; \
