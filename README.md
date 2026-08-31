@@ -54,7 +54,17 @@ features are left as raw panel data or shown as placeholders.
 
 ```sh
 make check
-make compile
+make compile VERSION=0.1.0
 ./bin/apollo
 nix develop
 ```
+
+Check the build version with:
+
+```sh
+./bin/apollo --version
+```
+
+Pushing to `main` creates a release with Linux and macOS binaries for amd64 and
+arm64. The release workflow currently starts at `v0.1.0`; update its `version`
+and `ldflags` values together for future version changes.

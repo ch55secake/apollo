@@ -1,4 +1,6 @@
 GO ?= go
+VERSION ?= dev
+LDFLAGS ?= -X main.version=$(VERSION)
 
 .PHONY: build compile test tidy check dev-shell
 
@@ -7,7 +9,7 @@ build:
 
 compile:
 	mkdir -p bin
-	$(GO) build -o bin/apollo ./cmd/apollo
+	$(GO) build -ldflags "$(LDFLAGS)" -o bin/apollo ./cmd/apollo
 
 test:
 	@set -e; \
