@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/pflag"
 )
 
+var version = "dev"
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "init" {
 		if err := initConfig(os.Args[2:]); err != nil {
@@ -24,11 +26,16 @@ func main() {
 	flags := pflag.NewFlagSet("apollo", pflag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	configPath := flags.StringP("config", "c", "", "path to the Apollo configuration file")
+	showVersion := flags.Bool("version", false, "print the Apollo version and exit")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		if err == pflag.ErrHelp {
 			return
 		}
 		os.Exit(2)
+	}
+	if *showVersion {
+		fmt.Printf("apollo %s\n", version)
+		return
 	}
 
 	cfg, err := config.Load(*configPath)
