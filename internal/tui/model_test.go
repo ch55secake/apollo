@@ -10,6 +10,7 @@ import (
 	"github.com/ch55secake/apollo/internal/dashboard"
 	"github.com/ch55secake/apollo/internal/prometheus"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type fakeSource struct {
@@ -52,6 +53,7 @@ func TestModelNavigatesDashboardAndQueryScreens(t *testing.T) {
 
 	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = update(t, m, dashboardsLoadedMsg{summaries: []dashboard.DashboardSummary{dashboardValue.DashboardSummary}})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	m, loadCmd := updateWithCmd(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.screen != dashboardDetailScreen || loadCmd == nil {
 		t.Fatalf("expected dashboard loading screen, got %d", m.screen)
@@ -85,6 +87,7 @@ func TestModelLoadsDashboardPathFromList(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m = update(t, m, dashboardsLoadedMsg{})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 
 	m, _ = updateWithCmd(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
 	if !m.loadMode {
@@ -104,6 +107,111 @@ func TestModelLoadsDashboardPathFromList(t *testing.T) {
 	m = update(t, m, loadCmd())
 	if m.listLoading || len(m.summaries) != 1 {
 		t.Fatalf("expected one loaded dashboard, loading=%t summaries=%d", m.listLoading, len(m.summaries))
+	}
+}
+
+func TestModelStartsOnMissionControlMenu(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 32})
+	view := m.View()
+	for _, value := range []string{"APOLLO", "Browse dashboards", "Load JSON path", "Connection status", "Help and shortcuts"} {
+		if !strings.Contains(view, value) {
+			t.Fatalf("home view did not include %q: %s", value, view)
+		}
+	}
+}
+
+func TestModelShowsConnectionStatus(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{
+		DashboardSource:    "grafana",
+		DashboardEndpoint:  "https://grafana.example.test",
+		PrometheusEndpoint: "https://prometheus.example.test",
+	})
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	m = update(t, m, healthLoadedMsg{generation: 1})
+	view := m.View()
+	for _, value := range []string{"CONNECTION STATUS", "grafana.example.test", "prometheus.example.test", "ONLINE"} {
+		if !strings.Contains(view, value) {
+			t.Fatalf("connection view did not include %q: %s", value, view)
+		}
+	}
+}
+
+func TestModelRefreshAdvancesQueryGeneration(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.screen = dashboardDetailScreen
+	m.dashboard = &dashboard.Dashboard{
+		DashboardSummary: dashboard.DashboardSummary{ID: "apollo", Title: "Apollo"},
+		Panels: []dashboard.Panel{{
+			Targets: []dashboard.Target{{Expr: "up", Range: true}},
+		}},
+	}
+	m.generation = 4
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{ResultType: "vector"}
+	m.queryErrors[queryKey(1, 0)] = context.Canceled
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	refreshed := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected refresh command")
+	}
+	if refreshed.generation != 5 {
+		t.Fatalf("expected query generation 5, got %d", refreshed.generation)
+	}
+	if len(refreshed.queryResults) != 0 || len(refreshed.queryErrors) != 0 {
+		t.Fatal("expected refresh to clear previous query state")
+	}
+}
+
+func TestModelMenuFitsNarrowTerminal(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m = update(t, m, tea.WindowSizeMsg{Width: 40, Height: 16})
+	assertViewWidth(t, m.View(), 40)
+}
+
+func TestModelSecondaryScreensFitNarrowTerminal(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{
+		DashboardSource:    "grafana",
+		DashboardEndpoint:  "https://grafana.example.test",
+		PrometheusEndpoint: "https://prometheus.example.test",
+	})
+	m = update(t, m, tea.WindowSizeMsg{Width: 40, Height: 20})
+	for _, current := range []screen{connectionScreen, helpScreen} {
+		m.screen = current
+		assertViewWidth(t, m.View(), 40)
+	}
+}
+
+func TestModelKeepsSelectedPanelVisible(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})
+	m.screen = dashboardDetailScreen
+	m.dashboard = &dashboard.Dashboard{
+		DashboardSummary: dashboard.DashboardSummary{ID: "apollo", Title: "Apollo"},
+		Panels: []dashboard.Panel{
+			{Title: "First", GridPos: dashboard.GridPos{Y: 0, H: 10}},
+			{Title: "Second", GridPos: dashboard.GridPos{Y: 10, H: 10}},
+			{Title: "Third", GridPos: dashboard.GridPos{Y: 20, H: 10}},
+		},
+	}
+	m.updateDashboardScroll()
+	if m.dashboardScroll.YOffset != 0 {
+		t.Fatalf("expected initial panel at top, got offset %d", m.dashboardScroll.YOffset)
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.selectedPanel != 1 || m.dashboardScroll.YOffset == 0 {
+		t.Fatalf("expected second panel to be selected and visible, panel=%d offset=%d", m.selectedPanel, m.dashboardScroll.YOffset)
+	}
+}
+
+func assertViewWidth(t *testing.T, view string, width int) {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if lineWidth := lipgloss.Width(line); lineWidth > width {
+			t.Fatalf("view line is %d columns wide, want at most %d: %q", lineWidth, width, line)
+		}
 	}
 }
 

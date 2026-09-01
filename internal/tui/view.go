@@ -12,47 +12,76 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var (
-	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	mutedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	selectedBorder = lipgloss.Color("205")
-	panelBorder    = lipgloss.Color("238")
-)
-
 func (m Model) View() string {
 	switch m.screen {
+	case mainMenuScreen:
+		return m.menuView()
 	case dashboardListScreen:
 		return m.listView()
 	case dashboardDetailScreen:
 		return m.dashboardView()
 	case queryScreen:
 		return m.queryView()
+	case connectionScreen:
+		return m.connectionView()
+	case helpScreen:
+		return m.helpView()
 	default:
 		return ""
 	}
 }
 
+func (m Model) menuView() string {
+	width := m.viewWidth()
+	contentWidth := max(32, width-8)
+	brand := renderBrand(width, m.height)
+	eyebrow := apolloTheme.Eyebrow.Render("APOLLO // OBSERVABILITY CONSOLE")
+	intro := apolloTheme.Muted.Render(truncate("A focused command deck for your dashboards and telemetry.", contentWidth))
+
+	var items []string
+	for index, item := range menuItems {
+		key := apolloTheme.Key.Render(item.key)
+		label := apolloTheme.Title.Render(item.title)
+		line := lipgloss.JoinHorizontal(lipgloss.Center, key, " ", label)
+		if contentWidth >= 64 {
+			line = lipgloss.JoinHorizontal(lipgloss.Center, line, apolloTheme.Muted.Render("  "+item.description))
+		}
+		if index == m.menuIndex {
+			line = apolloTheme.MenuSelected.Width(contentWidth).Render("▸ " + line)
+		} else {
+			line = apolloTheme.MenuItem.Width(contentWidth).Render("  " + line)
+		}
+		items = append(items, line)
+	}
+	menu := apolloTheme.Shell.Width(min(contentWidth, 86)).Render(strings.Join(items, "\n"))
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		brand,
+		eyebrow,
+		intro,
+		"",
+		menu,
+		"",
+		m.menuStatus(),
+		m.footer("j/k move   enter select   1-4 quick select   q quit"),
+	)
+}
+
 func (m Model) listView() string {
+	status := m.catalogStatus()
+	body := m.list.View()
 	if m.loadMode {
-		return lipgloss.JoinVertical(
+		body = lipgloss.JoinVertical(
 			lipgloss.Left,
-			titleStyle.Render("Load dashboard"),
-			mutedStyle.Render("Enter a JSON file or directory path."),
+			apolloTheme.Section.Render("LOAD DASHBOARD JSON"),
+			apolloTheme.Muted.Render("Enter a JSON file or directory path."),
 			m.loadInput.View(),
 			"",
-			m.list.View(),
-			footer("enter load   esc cancel   ctrl+c quit"),
+			body,
 		)
 	}
-	if m.listError == nil && !m.listLoading {
-		return lipgloss.JoinVertical(lipgloss.Left, m.list.View(), footer("l load path   r refresh   ctrl+c quit"))
-	}
-	status := "Loading dashboards..."
-	if m.listError != nil {
-		status = errorStyle.Render("Unable to load dashboards: " + m.listError.Error())
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, status, m.list.View(), footer("l load path   r refresh   ctrl+c quit"))
+	return m.shell("Dashboard catalog", status, body, "j/k move   enter open   l load path   r refresh   esc menu   q quit")
 }
 
 func (m Model) dashboardView() string {
@@ -60,21 +89,19 @@ func (m Model) dashboardView() string {
 	if m.dashboard != nil {
 		name = m.dashboard.Title
 	}
-	header := titleStyle.Render(name)
 	if m.detailLoading {
-		return lipgloss.JoinVertical(lipgloss.Left, header, "", "Loading dashboard...", footer("esc back   q quit"))
+		return m.shell("Dashboard", name, apolloTheme.Warning.Render("SYNCING DASHBOARD..."), "esc back   q quit")
 	}
 	if m.detailError != nil {
-		return lipgloss.JoinVertical(
+		body := lipgloss.JoinVertical(
 			lipgloss.Left,
-			header,
-			"",
-			errorStyle.Render("Unable to load dashboard: "+m.detailError.Error()),
-			footer("esc back   r retry   q quit"),
+			apolloTheme.Error.Render("Unable to load dashboard"),
+			apolloTheme.Muted.Render(m.detailError.Error()),
 		)
+		return m.shell("Dashboard", name, body, "r retry   esc back   q quit")
 	}
 	if m.dashboard == nil {
-		return lipgloss.JoinVertical(lipgloss.Left, header, "", mutedStyle.Render("No dashboard selected"), footer("esc back   q quit"))
+		return m.shell("Dashboard", name, apolloTheme.Muted.Render("No dashboard selected"), "esc back   q quit")
 	}
 
 	from := m.dashboard.Time.From
@@ -85,64 +112,217 @@ func (m Model) dashboardView() string {
 	if to == "" {
 		to = "now"
 	}
-	meta := mutedStyle.Render(fmt.Sprintf("%d panels   %s to %s", len(m.dashboard.Panels), from, to))
-	content := renderPanelRows(m)
-	return lipgloss.JoinVertical(lipgloss.Left, header, meta, "", content, footer("j/k move   enter query   r refresh   esc back   q quit"))
+	meta := fmt.Sprintf("%d panels   %s to %s", len(m.dashboard.Panels), from, to)
+	body := m.dashboardScroll.View()
+	return m.shell("Dashboard", m.dashboard.Title+"  "+apolloTheme.Muted.Render(meta), body, "j/k move   enter inspect query   r refresh   esc catalog   q quit")
 }
 
 func (m Model) queryView() string {
-	if m.dashboard == nil || m.selectedPanel >= len(m.dashboard.Panels) {
-		return "No query selected"
+	if m.dashboard == nil || m.selectedPanel < 0 || m.selectedPanel >= len(m.dashboard.Panels) {
+		return m.shell("Query detail", "", apolloTheme.Muted.Render("No query selected"), "esc back   q quit")
 	}
 	panel := m.dashboard.Panels[m.selectedPanel]
-	header := titleStyle.Render(panel.Title)
-	return lipgloss.JoinVertical(lipgloss.Left, header, m.queryScroll.View(), footer("scroll   r refresh   esc back   q quit"))
+	targetCount := len(panel.Targets)
+	targetMeta := fmt.Sprintf("target %d/%d", m.selectedTarget+1, targetCount)
+	return m.shell("Query detail", panel.Title+"  "+apolloTheme.Badge.Render(targetMeta), m.queryScroll.View(), "h/l or left/right target   scroll   r refresh   esc back   q quit")
 }
 
-func (m Model) queryContent() string {
-	if m.dashboard == nil || m.selectedPanel >= len(m.dashboard.Panels) {
-		return "No query selected"
+func (m Model) connectionView() string {
+	dashboardEndpoint := m.options.DashboardEndpoint
+	if m.options.DashboardSource == "file" {
+		dashboardEndpoint = m.options.DashboardPath
 	}
-	panel := m.dashboard.Panels[m.selectedPanel]
-	if len(panel.Targets) == 0 || m.selectedTarget >= len(panel.Targets) {
-		return mutedStyle.Render("This panel does not contain a query target.")
+	if dashboardEndpoint == "" {
+		dashboardEndpoint = "not configured"
 	}
-	target := panel.Targets[m.selectedTarget]
-	key := queryKey(m.selectedPanel, m.selectedTarget)
-	var builder strings.Builder
-	fmt.Fprintf(&builder, "Target %s\n", target.RefID)
-	fmt.Fprintf(&builder, "PromQL: %s\n", dashboard.ExpandQuery(target.Expr, m.dashboard.Variables))
-	fmt.Fprintf(&builder, "Legend: %s\n\n", emptyDash(target.LegendFormat))
-	if err := m.queryErrors[key]; err != nil {
-		builder.WriteString(errorStyle.Render(err.Error()))
-		return builder.String()
+	prometheusEndpoint := emptyDash(m.options.PrometheusEndpoint)
+
+	rows := []string{
+		apolloTheme.Section.Render("LINK STATUS"),
+		statusRow("Dashboard source", emptyDash(m.options.DashboardSource)),
+		statusRow("Dashboard endpoint", dashboardEndpoint),
+		statusRow("Dashboard catalog", m.catalogBadge()),
+		"",
+		apolloTheme.Section.Render("PROMETHEUS"),
+		statusRow("Endpoint", prometheusEndpoint),
+		statusRow("Health probe", m.prometheusBadge()),
 	}
-	result, ok := m.queryResults[key]
-	if !ok {
-		builder.WriteString("Loading query result...")
-		return builder.String()
+	if m.healthError != nil {
+		rows = append(rows, apolloTheme.Error.Render("  "+m.healthError.Error()))
 	}
-	builder.WriteString(renderResult(result, max(20, m.width-4), max(6, m.height-8), true))
-	return builder.String()
+	return m.shell("Connection status", "LIVE SERVICE TELEMETRY", strings.Join(rows, "\n"), "r refresh checks   esc menu   q quit")
+}
+
+func (m Model) helpView() string {
+	rows := []string{
+		apolloTheme.Section.Render("HOME"),
+		shortcutRow("j / k", "move through menu items"),
+		shortcutRow("enter", "open the selected menu item"),
+		shortcutRow("1 - 4", "jump directly to a menu item"),
+		shortcutRow("q", "quit Apollo"),
+		"",
+		apolloTheme.Section.Render("DASHBOARD CATALOG"),
+		shortcutRow("enter", "open the selected dashboard"),
+		shortcutRow("l", "load a local JSON file or directory"),
+		shortcutRow("r", "refresh the catalog"),
+		shortcutRow("esc", "return to the home screen"),
+		"",
+		apolloTheme.Section.Render("DASHBOARD WORKSPACE"),
+		shortcutRow("j / k", "select a panel"),
+		shortcutRow("enter", "inspect a panel query"),
+		shortcutRow("r", "refresh panel data"),
+		shortcutRow("esc", "return to the dashboard catalog"),
+		"",
+		apolloTheme.Section.Render("QUERY DETAIL"),
+		shortcutRow("h / l", "switch between query targets"),
+		shortcutRow("up / down", "scroll the query result"),
+	}
+	return m.shell("Help and shortcuts", "FIELD MANUAL", strings.Join(rows, "\n"), "esc menu   q quit")
+}
+
+func (m Model) shell(title, subtitle, body, help string) string {
+	width := m.viewWidth()
+	contentWidth := max(24, width-4)
+	header := lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Brand.Render("APOLLO"), apolloTheme.Muted.Render("  /  "+strings.ToUpper(title)))
+	if subtitle != "" {
+		header = lipgloss.JoinVertical(lipgloss.Left, header, subtitle)
+	}
+	bodyStyle := apolloTheme.Shell.Width(max(20, contentWidth-2))
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		lipgloss.NewStyle().Width(contentWidth).Render(header),
+		bodyStyle.Render(body),
+		m.footer(help),
+	)
+}
+
+func (m Model) menuStatus() string {
+	return lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		apolloTheme.Muted.Render("CATALOG "),
+		m.catalogBadge(),
+		apolloTheme.Muted.Render("    PROMETHEUS "),
+		m.prometheusBadge(),
+	)
+}
+
+func (m Model) catalogStatus() string {
+	if m.listLoading {
+		return apolloTheme.Warning.Render("● CATALOG SYNC IN PROGRESS")
+	}
+	if m.listError != nil {
+		return apolloTheme.Error.Render("● CATALOG UNAVAILABLE  ") + apolloTheme.Muted.Render(m.listError.Error())
+	}
+	if len(m.summaries) == 0 {
+		return apolloTheme.Warning.Render("● CATALOG EMPTY  ") + apolloTheme.Muted.Render("Use l to load a local JSON path")
+	}
+	return apolloTheme.Success.Render(fmt.Sprintf("● %d DASHBOARDS READY", len(m.summaries)))
+}
+
+func (m Model) catalogBadge() string {
+	if m.listLoading {
+		return apolloTheme.Warning.Render("SYNCING")
+	}
+	if m.listError != nil {
+		return apolloTheme.Error.Render("ERROR")
+	}
+	if len(m.summaries) == 0 {
+		return apolloTheme.Warning.Render("EMPTY")
+	}
+	return apolloTheme.Success.Render("ONLINE")
+}
+
+func (m Model) prometheusBadge() string {
+	if m.healthLoading {
+		return apolloTheme.Warning.Render("CHECKING")
+	}
+	if m.healthError != nil {
+		return apolloTheme.Error.Render("OFFLINE")
+	}
+	return apolloTheme.Success.Render("ONLINE")
+}
+
+func statusRow(label, value string) string {
+	return fmt.Sprintf("%-22s %s", apolloTheme.Muted.Render(label), value)
+}
+
+func shortcutRow(key, description string) string {
+	return lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Key.Render(key), "  ", apolloTheme.Muted.Render(description))
+}
+
+func (m Model) footer(value string) string {
+	return "\n" + apolloTheme.Muted.Render("// "+truncate(value, max(1, m.viewWidth()-3)))
+}
+
+func (m Model) viewWidth() int {
+	if m.width <= 0 {
+		return 80
+	}
+	return m.width
+}
+
+func (m *Model) updateDashboardScroll() {
+	m.dashboardScroll.SetContent(m.dashboardContent())
+	if m.dashboard == nil || len(m.dashboard.Panels) == 0 {
+		return
+	}
+
+	indices := m.orderedPanelIndices()
+	offset := 0
+	for start := 0; start < len(indices); {
+		rowY := m.dashboard.Panels[indices[start]].GridPos.Y
+		end := start
+		for end < len(indices) && m.dashboard.Panels[indices[end]].GridPos.Y == rowY {
+			end++
+		}
+		if m.viewWidth() < 90 && end-start > 1 {
+			end = start + 1
+		}
+
+		cards := make([]string, 0, end-start)
+		for _, index := range indices[start:end] {
+			panel := m.dashboard.Panels[index]
+			gridWidth := panel.GridPos.W
+			if m.viewWidth() < 90 {
+				gridWidth = 24
+			}
+			width := panelWidth(m.viewWidth(), gridWidth, end-start)
+			cards = append(cards, renderPanel(*m, index, panel, width, panelHeight(panel.GridPos.H)))
+		}
+		rowHeight := lipgloss.Height(lipgloss.JoinHorizontal(lipgloss.Top, cards...))
+		selected := false
+		for _, index := range indices[start:end] {
+			if index == m.selectedPanel {
+				selected = true
+				break
+			}
+		}
+		if selected {
+			viewportHeight := max(1, m.dashboardScroll.Height)
+			if offset < m.dashboardScroll.YOffset {
+				m.dashboardScroll.SetYOffset(offset)
+			} else if rowHeight >= viewportHeight {
+				if offset >= m.dashboardScroll.YOffset+viewportHeight {
+					m.dashboardScroll.SetYOffset(offset)
+				}
+			} else if offset+rowHeight > m.dashboardScroll.YOffset+viewportHeight {
+				m.dashboardScroll.SetYOffset(offset + rowHeight - viewportHeight)
+			}
+			return
+		}
+		offset += rowHeight
+		if end < len(indices) {
+			offset++
+		}
+		start = end
+	}
 }
 
 func renderPanelRows(m Model) string {
-	if len(m.dashboard.Panels) == 0 {
-		return mutedStyle.Render("This dashboard has no panels.")
+	if m.dashboard == nil || len(m.dashboard.Panels) == 0 {
+		return apolloTheme.Muted.Render("This dashboard has no panels.")
 	}
-	indices := make([]int, len(m.dashboard.Panels))
-	for i := range indices {
-		indices[i] = i
-	}
-	sort.SliceStable(indices, func(i, j int) bool {
-		left := m.dashboard.Panels[indices[i]].GridPos
-		right := m.dashboard.Panels[indices[j]].GridPos
-		if left.Y == right.Y {
-			return left.X < right.X
-		}
-		return left.Y < right.Y
-	})
-
+	indices := m.orderedPanelIndices()
 	var rows []string
 	for start := 0; start < len(indices); {
 		rowY := m.dashboard.Panels[indices[start]].GridPos.Y
@@ -150,10 +330,17 @@ func renderPanelRows(m Model) string {
 		for end < len(indices) && m.dashboard.Panels[indices[end]].GridPos.Y == rowY {
 			end++
 		}
+		if m.viewWidth() < 90 && end-start > 1 {
+			end = start + 1
+		}
 		cards := make([]string, 0, end-start)
 		for _, index := range indices[start:end] {
 			panel := m.dashboard.Panels[index]
-			width := panelWidth(m.width, panel.GridPos.W, end-start)
+			gridWidth := panel.GridPos.W
+			if m.viewWidth() < 90 {
+				gridWidth = 24
+			}
+			width := panelWidth(m.viewWidth(), gridWidth, end-start)
 			height := panelHeight(panel.GridPos.H)
 			cards = append(cards, renderPanel(m, index, panel, width, height))
 		}
@@ -163,63 +350,137 @@ func renderPanelRows(m Model) string {
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
+func (m Model) orderedPanelIndices() []int {
+	indices := make([]int, len(m.dashboard.Panels))
+	for index := range indices {
+		indices[index] = index
+	}
+	sort.SliceStable(indices, func(i, j int) bool {
+		left := m.dashboard.Panels[indices[i]].GridPos
+		right := m.dashboard.Panels[indices[j]].GridPos
+		if left.Y == right.Y {
+			return left.X < right.X
+		}
+		return left.Y < right.Y
+	})
+	return indices
+}
+
+func (m *Model) movePanel(delta int) bool {
+	if m.dashboard == nil || len(m.dashboard.Panels) == 0 {
+		return false
+	}
+	indices := m.orderedPanelIndices()
+	position := 0
+	for index, panelIndex := range indices {
+		if panelIndex == m.selectedPanel {
+			position = index
+			break
+		}
+	}
+	next := min(len(indices)-1, max(0, position+delta))
+	if indices[next] == m.selectedPanel {
+		return false
+	}
+	m.selectedPanel = indices[next]
+	m.selectedTarget = 0
+	return true
+}
+
+func (m Model) queryContent() string {
+	if m.dashboard == nil || m.selectedPanel < 0 || m.selectedPanel >= len(m.dashboard.Panels) {
+		return "No query selected"
+	}
+	panel := m.dashboard.Panels[m.selectedPanel]
+	if len(panel.Targets) == 0 || m.selectedTarget < 0 || m.selectedTarget >= len(panel.Targets) {
+		return apolloTheme.Muted.Render("This panel does not contain a query target.")
+	}
+	target := panel.Targets[m.selectedTarget]
+	key := queryKey(m.selectedPanel, m.selectedTarget)
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "%s\n", apolloTheme.Section.Render("TARGET "+emptyDash(target.RefID)))
+	fmt.Fprintf(&builder, "PromQL: %s\n", dashboard.ExpandQuery(target.Expr, m.dashboard.Variables))
+	fmt.Fprintf(&builder, "Legend: %s\n\n", emptyDash(target.LegendFormat))
+	if reason := targetSkipReason(target); reason != "" {
+		builder.WriteString(apolloTheme.Warning.Render(reason))
+		return builder.String()
+	}
+	if err := m.queryErrors[key]; err != nil {
+		builder.WriteString(apolloTheme.Error.Render(err.Error()))
+		return builder.String()
+	}
+	result, ok := m.queryResults[key]
+	if !ok {
+		builder.WriteString(apolloTheme.Warning.Render("Loading query result..."))
+		return builder.String()
+	}
+	builder.WriteString(renderResult(result, max(20, m.viewWidth()-12), max(6, m.height-15), true))
+	return builder.String()
+}
+
 func renderPanel(m Model, index int, panel dashboard.Panel, width, height int) string {
-	border := panelBorder
+	style := apolloTheme.Panel
 	if index == m.selectedPanel {
-		border = selectedBorder
+		style = apolloTheme.PanelSelected
 	}
 	innerWidth := max(10, width-4)
 	innerHeight := max(2, height-3)
-	content := "No query targets"
+	content := apolloTheme.Muted.Render("No query targets")
 	if panel.Text != "" {
 		content = panel.Text
 	}
 	if len(panel.Targets) > 0 {
-		key := queryKey(index, 0)
-		if err := m.queryErrors[key]; err != nil {
-			content = errorStyle.Render(err.Error())
-		} else if result, ok := m.queryResults[key]; ok {
-			content = renderResult(result, innerWidth, innerHeight, isChartPanel(panel.Type))
+		target := panel.Targets[0]
+		if reason := targetSkipReason(target); reason != "" {
+			content = apolloTheme.Warning.Render(reason)
 		} else {
-			content = "Loading query..."
+			key := queryKey(index, 0)
+			if err := m.queryErrors[key]; err != nil {
+				content = apolloTheme.Error.Render(err.Error())
+			} else if result, ok := m.queryResults[key]; ok {
+				content = renderResult(result, innerWidth, innerHeight, isChartPanel(panel.Type))
+			} else {
+				content = apolloTheme.Warning.Render("Loading query...")
+			}
 		}
 	}
 	title := panel.Title
 	if title == "" {
-		title = panel.Type
+		title = "Untitled panel"
 	}
-	if panel.Row != "" {
-		title = panel.Row + " / " + title
+	badge := apolloTheme.Badge.Render(strings.ToUpper(emptyDash(panel.Type)))
+	heading := lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Title.Render(truncate(title, max(12, width-14))), " ", badge)
+	if len(panel.Targets) > 1 {
+		heading = lipgloss.JoinHorizontal(lipgloss.Center, heading, " ", apolloTheme.Muted.Render(fmt.Sprintf("+%d targets", len(panel.Targets)-1)))
 	}
-	return lipgloss.NewStyle().
-		Width(max(10, width-2)).
-		Height(max(3, height-2)).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(border).
-		Padding(0, 1).
-		Render(title + "\n" + content)
+	return style.Width(max(10, width-2)).Height(max(3, height-2)).Render(heading + "\n" + content)
+}
+
+func targetSkipReason(target dashboard.Target) string {
+	if strings.TrimSpace(target.Expr) == "" {
+		return "Skipped: no PromQL expression"
+	}
+	if !target.Datasource.IsPrometheus() {
+		return "Skipped: non-Prometheus datasource"
+	}
+	return ""
 }
 
 func renderResult(result prometheus.Result, width, height int, chart bool) string {
-	if len(result.Warnings) > 0 {
-		warning := mutedStyle.Render("Warnings: " + strings.Join(result.Warnings, "; "))
-		if len(result.Series) == 0 {
-			return warning
-		}
-	}
+	body := "No data"
 	if chart && len(result.Series) > 0 {
-		return renderChart(result.Series, width, height)
+		body = renderChart(result.Series, width, height)
+	} else if result.Scalar != nil {
+		body = fmt.Sprintf("%.4g", result.Scalar.Value)
+	} else if result.Text != "" {
+		body = result.Text
+	} else if len(result.Series) > 0 {
+		body = renderSeriesSummary(result.Series)
 	}
-	if result.Scalar != nil {
-		return fmt.Sprintf("%.4g", result.Scalar.Value)
+	if len(result.Warnings) > 0 {
+		body = apolloTheme.Warning.Render("Warnings: "+strings.Join(result.Warnings, "; ")) + "\n" + body
 	}
-	if result.Text != "" {
-		return result.Text
-	}
-	if len(result.Series) > 0 {
-		return renderSeriesSummary(result.Series)
-	}
-	return "No data"
+	return body
 }
 
 func renderChart(series []prometheus.Series, width, height int) string {
@@ -288,18 +549,14 @@ func panelWidth(totalWidth, gridWidth, columns int) int {
 		gridWidth = 24 / max(1, columns)
 	}
 	width := totalWidth * gridWidth / 24
-	return max(20, width-1)
+	return max(24, width-1)
 }
 
 func panelHeight(gridHeight int) int {
 	if gridHeight <= 0 {
-		return 8
+		return 10
 	}
-	return max(6, min(16, gridHeight))
-}
-
-func footer(value string) string {
-	return "\n" + mutedStyle.Render(value)
+	return max(7, min(18, gridHeight))
 }
 
 func emptyDash(value string) string {
@@ -310,8 +567,18 @@ func emptyDash(value string) string {
 }
 
 func truncate(value string, width int) string {
-	if len(value) <= width {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
 		return value
 	}
-	return value[:max(0, width-3)] + "..."
+	runes := []rune(value)
+	for index := len(runes); index >= 0; index-- {
+		candidate := string(runes[:index]) + "..."
+		if lipgloss.Width(candidate) <= width {
+			return candidate
+		}
+	}
+	return "..."
 }

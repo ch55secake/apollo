@@ -56,9 +56,13 @@ func main() {
 	}
 
 	model := tui.New(source, querier, tui.Options{
-		RefreshInterval:  cfg.UI.RefreshInterval,
-		DefaultTimeRange: cfg.UI.DefaultTimeRange,
-		MaxDataPoints:    cfg.UI.MaxDataPoints,
+		RefreshInterval:    cfg.UI.RefreshInterval,
+		DefaultTimeRange:   cfg.UI.DefaultTimeRange,
+		MaxDataPoints:      cfg.UI.MaxDataPoints,
+		DashboardSource:    cfg.Dashboards.Source,
+		DashboardEndpoint:  cfg.Dashboards.Grafana.URL,
+		DashboardPath:      cfg.Dashboards.Path,
+		PrometheusEndpoint: cfg.Prometheus.URL,
 	})
 	if _, err := tea.NewProgram(model, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "apollo: %v\n", err)
