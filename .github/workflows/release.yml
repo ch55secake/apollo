@@ -14,6 +14,7 @@ jobs:
     with:
       binary-name: apollo
       build-package: ./cmd/apollo
+      cgo-enabled: '0'
       targets: '[{"goos":"linux","goarch":"amd64"},{"goos":"linux","goarch":"arm64"},{"goos":"darwin","goarch":"amd64"},{"goos":"darwin","goarch":"arm64"}]'
-      version: 0.1.0
-      ldflags: "-s -w -X main.version=0.1.0"
+      version: 0.1.1
+      ldflags: "-s -w -X main.version=0.1.1"
