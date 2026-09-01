@@ -165,9 +165,11 @@ func TestModelRefreshAdvancesQueryGeneration(t *testing.T) {
 }
 
 func TestModelMenuFitsNarrowTerminal(t *testing.T) {
-	m := New(fakeSource{}, fakeQuerier{}, Options{})
-	m = update(t, m, tea.WindowSizeMsg{Width: 40, Height: 16})
-	assertViewWidth(t, m.View(), 40)
+	for _, height := range []int{16, 24, 32} {
+		m := New(fakeSource{}, fakeQuerier{}, Options{})
+		m = update(t, m, tea.WindowSizeMsg{Width: 40, Height: height})
+		assertViewBounds(t, m.View(), 40, height)
+	}
 }
 
 func TestModelSecondaryScreensFitNarrowTerminal(t *testing.T) {
@@ -179,7 +181,49 @@ func TestModelSecondaryScreensFitNarrowTerminal(t *testing.T) {
 	m = update(t, m, tea.WindowSizeMsg{Width: 40, Height: 20})
 	for _, current := range []screen{connectionScreen, helpScreen} {
 		m.screen = current
-		assertViewWidth(t, m.View(), 40)
+		assertViewBounds(t, m.View(), 40, 20)
+	}
+}
+
+func TestModelDashboardScreensFitNarrowTerminal(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m = update(t, m, tea.WindowSizeMsg{Width: 40, Height: 20})
+	m.screen = dashboardDetailScreen
+	m.dashboard = &dashboard.Dashboard{
+		DashboardSummary: dashboard.DashboardSummary{ID: "apollo", Title: "Apollo"},
+		Panels: []dashboard.Panel{{
+			Title:   "Request rate",
+			Type:    "timeseries",
+			GridPos: dashboard.GridPos{W: 24, H: 10},
+			Targets: []dashboard.Target{{Expr: "up", Range: true}},
+		}},
+	}
+	m.updateDashboardScroll()
+	assertViewBounds(t, m.View(), 40, 20)
+
+	m.screen = queryScreen
+	m.queryScroll.SetContent(m.queryContent())
+	assertViewBounds(t, m.View(), 40, 20)
+}
+
+func TestMenuSelectionRowsHaveStableWidth(t *testing.T) {
+	selected := apolloTheme.MenuSelected.Width(24).Render("▸ 1 Browse dashboards")
+	normal := apolloTheme.MenuItem.Width(24).Render("  2 Load JSON path")
+	if selectedWidth, normalWidth := lipgloss.Width(selected), lipgloss.Width(normal); selectedWidth != normalWidth {
+		t.Fatalf("menu selection widths differ: selected=%d normal=%d", selectedWidth, normalWidth)
+	}
+}
+
+func TestRenderChartFitsRequestedWidth(t *testing.T) {
+	series := []prometheus.Series{{
+		Labels: map[string]string{"job": "apollo"},
+		Samples: []prometheus.Sample{{
+			Timestamp: time.Now(),
+			Value:     1,
+		}},
+	}}
+	for _, size := range []struct{ width, height int }{{8, 5}, {16, 5}, {24, 6}, {40, 8}} {
+		assertViewWidth(t, renderChart(series, size.width, size.height), size.width)
 	}
 }
 
@@ -206,12 +250,30 @@ func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	}
 }
 
+func TestPanelRowsFitViewportWidth(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.dashboard = &dashboard.Dashboard{Panels: []dashboard.Panel{
+		{Title: "Left", GridPos: dashboard.GridPos{X: 0, Y: 0, W: 24, H: 8}},
+		{Title: "Right", GridPos: dashboard.GridPos{X: 24, Y: 0, W: 24, H: 8}},
+	}}
+	assertViewWidth(t, renderPanelRows(m), m.dashboardScroll.Width)
+}
+
 func assertViewWidth(t *testing.T, view string, width int) {
 	t.Helper()
 	for _, line := range strings.Split(view, "\n") {
 		if lineWidth := lipgloss.Width(line); lineWidth > width {
 			t.Fatalf("view line is %d columns wide, want at most %d: %q", lineWidth, width, line)
 		}
+	}
+}
+
+func assertViewBounds(t *testing.T, view string, width, height int) {
+	t.Helper()
+	assertViewWidth(t, view, width)
+	if lineCount := len(strings.Split(view, "\n")); lineCount > height {
+		t.Fatalf("view is %d lines tall, want at most %d", lineCount, height)
 	}
 }
 

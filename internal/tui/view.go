@@ -33,39 +33,37 @@ func (m Model) View() string {
 
 func (m Model) menuView() string {
 	width := m.viewWidth()
-	contentWidth := max(32, width-8)
-	brand := renderBrand(width, m.height)
+	contentWidth := max(1, width-apolloTheme.Shell.GetHorizontalFrameSize())
+	brand := renderBrand(width, m.viewHeight())
 	eyebrow := apolloTheme.Eyebrow.Render("APOLLO // OBSERVABILITY CONSOLE")
 	intro := apolloTheme.Muted.Render(truncate("A focused command deck for your dashboards and telemetry.", contentWidth))
+	menuWidth := min(contentWidth+apolloTheme.Shell.GetHorizontalPadding(), 86)
+	menuContentWidth := max(1, menuWidth-apolloTheme.Shell.GetHorizontalPadding())
+	rowWidth := max(1, menuContentWidth-1)
 
 	var items []string
 	for index, item := range menuItems {
 		key := apolloTheme.Key.Render(item.key)
 		label := apolloTheme.Title.Render(item.title)
 		line := lipgloss.JoinHorizontal(lipgloss.Center, key, " ", label)
-		if contentWidth >= 64 {
+		if menuContentWidth >= 64 {
 			line = lipgloss.JoinHorizontal(lipgloss.Center, line, apolloTheme.Muted.Render("  "+item.description))
 		}
 		if index == m.menuIndex {
-			line = apolloTheme.MenuSelected.Width(contentWidth).Render("▸ " + line)
+			line = apolloTheme.MenuSelected.Width(rowWidth).Render("▸ " + line)
 		} else {
-			line = apolloTheme.MenuItem.Width(contentWidth).Render("  " + line)
+			line = apolloTheme.MenuItem.Width(rowWidth).Render("  " + line)
 		}
 		items = append(items, line)
 	}
-	menu := apolloTheme.Shell.Width(min(contentWidth, 86)).Render(strings.Join(items, "\n"))
+	menu := apolloTheme.Shell.Width(menuWidth).Render(strings.Join(items, "\n"))
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		brand,
-		eyebrow,
-		intro,
-		"",
-		menu,
-		"",
-		m.menuStatus(),
-		m.footer("j/k move   enter select   1-4 quick select   q quit"),
-	)
+	sections := []string{brand, eyebrow}
+	if m.viewHeight() >= 22 {
+		sections = append(sections, intro)
+	}
+	sections = append(sections, "", menu, "", m.menuStatus(contentWidth), m.footer("j/k move   enter select   1-4 quick select   q quit"))
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
 func (m Model) listView() string {
@@ -154,6 +152,10 @@ func (m Model) connectionView() string {
 }
 
 func (m Model) helpView() string {
+	return m.shell("Help and shortcuts", "FIELD MANUAL", m.helpScroll.View(), "up/down scroll   esc menu   q quit")
+}
+
+func (m Model) helpContent() string {
 	rows := []string{
 		apolloTheme.Section.Render("HOME"),
 		shortcutRow("j / k", "move through menu items"),
@@ -177,26 +179,31 @@ func (m Model) helpView() string {
 		shortcutRow("h / l", "switch between query targets"),
 		shortcutRow("up / down", "scroll the query result"),
 	}
-	return m.shell("Help and shortcuts", "FIELD MANUAL", strings.Join(rows, "\n"), "esc menu   q quit")
+	return strings.Join(rows, "\n")
 }
 
 func (m Model) shell(title, subtitle, body, help string) string {
 	width := m.viewWidth()
-	contentWidth := max(24, width-4)
-	header := lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Brand.Render("APOLLO"), apolloTheme.Muted.Render("  /  "+strings.ToUpper(title)))
+	header := lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Brand.Render("APOLLO"), apolloTheme.Muted.Render("  /  "+strings.ToUpper(truncate(title, max(1, width-10)))))
 	if subtitle != "" {
-		header = lipgloss.JoinVertical(lipgloss.Left, header, subtitle)
+		header = lipgloss.JoinVertical(lipgloss.Left, header, lipgloss.NewStyle().MaxWidth(max(1, width)).Render(subtitle))
 	}
-	bodyStyle := apolloTheme.Shell.Width(max(20, contentWidth-2))
+	bodyStyle := apolloTheme.Shell.Width(max(1, width-apolloTheme.Shell.GetHorizontalBorderSize()))
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		lipgloss.NewStyle().Width(contentWidth).Render(header),
+		lipgloss.NewStyle().MaxWidth(max(1, width)).Render(header),
 		bodyStyle.Render(body),
 		m.footer(help),
 	)
 }
 
-func (m Model) menuStatus() string {
+func (m Model) menuStatus(width int) string {
+	if width < 32 {
+		return m.prometheusBadge()
+	}
+	if width < 48 {
+		return lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Muted.Render("CAT "), m.catalogBadge(), apolloTheme.Muted.Render("  PROM "), m.prometheusBadge())
+	}
 	return lipgloss.JoinHorizontal(
 		lipgloss.Center,
 		apolloTheme.Muted.Render("CATALOG "),
@@ -261,6 +268,28 @@ func (m Model) viewWidth() int {
 	return m.width
 }
 
+func (m Model) viewHeight() int {
+	if m.height <= 0 {
+		return 24
+	}
+	return m.height
+}
+
+func (m Model) bodyContentWidth() int {
+	return max(1, m.viewWidth()-apolloTheme.Shell.GetHorizontalFrameSize())
+}
+
+func (m Model) bodyContentHeight() int {
+	return max(1, m.viewHeight()-8)
+}
+
+func (m Model) dashboardWidth() int {
+	if m.dashboardScroll.Width > 0 {
+		return m.dashboardScroll.Width
+	}
+	return m.bodyContentWidth()
+}
+
 func (m *Model) updateDashboardScroll() {
 	m.dashboardScroll.SetContent(m.dashboardContent())
 	if m.dashboard == nil || len(m.dashboard.Panels) == 0 {
@@ -279,14 +308,11 @@ func (m *Model) updateDashboardScroll() {
 			end = start + 1
 		}
 
+		widths := m.panelRowWidths(indices[start:end])
 		cards := make([]string, 0, end-start)
-		for _, index := range indices[start:end] {
+		for position, index := range indices[start:end] {
 			panel := m.dashboard.Panels[index]
-			gridWidth := panel.GridPos.W
-			if m.viewWidth() < 90 {
-				gridWidth = 24
-			}
-			width := panelWidth(m.viewWidth(), gridWidth, end-start)
+			width := widths[position]
 			cards = append(cards, renderPanel(*m, index, panel, width, panelHeight(panel.GridPos.H)))
 		}
 		rowHeight := lipgloss.Height(lipgloss.JoinHorizontal(lipgloss.Top, cards...))
@@ -334,13 +360,10 @@ func renderPanelRows(m Model) string {
 			end = start + 1
 		}
 		cards := make([]string, 0, end-start)
-		for _, index := range indices[start:end] {
+		widths := m.panelRowWidths(indices[start:end])
+		for position, index := range indices[start:end] {
 			panel := m.dashboard.Panels[index]
-			gridWidth := panel.GridPos.W
-			if m.viewWidth() < 90 {
-				gridWidth = 24
-			}
-			width := panelWidth(m.viewWidth(), gridWidth, end-start)
+			width := widths[position]
 			height := panelHeight(panel.GridPos.H)
 			cards = append(cards, renderPanel(m, index, panel, width, height))
 		}
@@ -348,6 +371,41 @@ func renderPanelRows(m Model) string {
 		start = end
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+}
+
+func (m Model) panelRowWidths(indices []int) []int {
+	if len(indices) == 0 {
+		return nil
+	}
+	totalWidth := m.dashboardWidth()
+	gridWidths := make([]int, len(indices))
+	totalGridWidth := 0
+	for index, panelIndex := range indices {
+		gridWidth := m.dashboard.Panels[panelIndex].GridPos.W
+		if m.viewWidth() < 90 {
+			gridWidth = 24
+		}
+		if gridWidth <= 0 {
+			gridWidth = 24 / len(indices)
+		}
+		gridWidths[index] = gridWidth
+		totalGridWidth += gridWidth
+	}
+	if totalGridWidth <= 0 {
+		totalGridWidth = len(indices)
+	}
+
+	widths := make([]int, len(indices))
+	used := 0
+	for index, gridWidth := range gridWidths {
+		if index == len(widths)-1 {
+			widths[index] = max(0, totalWidth-used)
+		} else {
+			widths[index] = totalWidth * gridWidth / totalGridWidth
+			used += widths[index]
+		}
+	}
+	return widths
 }
 
 func (m Model) orderedPanelIndices() []int {
@@ -414,17 +472,20 @@ func (m Model) queryContent() string {
 		builder.WriteString(apolloTheme.Warning.Render("Loading query result..."))
 		return builder.String()
 	}
-	builder.WriteString(renderResult(result, max(20, m.viewWidth()-12), max(6, m.height-15), true))
+	builder.WriteString(renderResult(result, max(1, m.queryScroll.Width), max(1, m.queryScroll.Height-4), true))
 	return builder.String()
 }
 
 func renderPanel(m Model, index int, panel dashboard.Panel, width, height int) string {
+	if width < 4 {
+		return truncate(panel.Title, width)
+	}
 	style := apolloTheme.Panel
 	if index == m.selectedPanel {
 		style = apolloTheme.PanelSelected
 	}
-	innerWidth := max(10, width-4)
-	innerHeight := max(2, height-3)
+	innerWidth := max(1, width-4)
+	innerHeight := max(1, height-3)
 	content := apolloTheme.Muted.Render("No query targets")
 	if panel.Text != "" {
 		content = panel.Text
@@ -453,7 +514,7 @@ func renderPanel(m Model, index int, panel dashboard.Panel, width, height int) s
 	if len(panel.Targets) > 1 {
 		heading = lipgloss.JoinHorizontal(lipgloss.Center, heading, " ", apolloTheme.Muted.Render(fmt.Sprintf("+%d targets", len(panel.Targets)-1)))
 	}
-	return style.Width(max(10, width-2)).Height(max(3, height-2)).Render(heading + "\n" + content)
+	return style.Width(max(1, width-2)).Height(max(3, height-2)).Render(heading + "\n" + content)
 }
 
 func targetSkipReason(target dashboard.Target) string {
@@ -475,7 +536,7 @@ func renderResult(result prometheus.Result, width, height int, chart bool) strin
 	} else if result.Text != "" {
 		body = result.Text
 	} else if len(result.Series) > 0 {
-		body = renderSeriesSummary(result.Series)
+		body = renderSeriesSummary(result.Series, width)
 	}
 	if len(result.Warnings) > 0 {
 		body = apolloTheme.Warning.Render("Warnings: "+strings.Join(result.Warnings, "; ")) + "\n" + body
@@ -484,7 +545,10 @@ func renderResult(result prometheus.Result, width, height int, chart bool) strin
 }
 
 func renderChart(series []prometheus.Series, width, height int) string {
-	chart := timeserieslinechart.New(max(20, width), max(6, height))
+	if width < 24 || height < 6 {
+		return renderSeriesSummary(series, width)
+	}
+	chart := timeserieslinechart.New(width, height)
 	for index, item := range series {
 		name := formatLabels(item.Labels)
 		if name == "" {
@@ -501,14 +565,22 @@ func renderChart(series []prometheus.Series, width, height int) string {
 	return chart.View()
 }
 
-func renderSeriesSummary(series []prometheus.Series) string {
+func renderSeriesSummary(series []prometheus.Series, width int) string {
+	width = max(1, width)
 	lines := make([]string, 0, len(series))
 	for _, item := range series {
 		if len(item.Samples) == 0 {
 			continue
 		}
 		last := item.Samples[len(item.Samples)-1]
-		lines = append(lines, fmt.Sprintf("%-20s %.4g", truncate(formatLabels(item.Labels), 20), last.Value))
+		value := fmt.Sprintf("%.4g", last.Value)
+		if width <= lipgloss.Width(value) {
+			lines = append(lines, truncate(value, width))
+			continue
+		}
+		labelWidth := max(1, width-lipgloss.Width(value)-1)
+		line := truncate(formatLabels(item.Labels), labelWidth) + " " + value
+		lines = append(lines, truncate(line, width))
 	}
 	if len(lines) == 0 {
 		return "No samples"
@@ -539,17 +611,6 @@ func isChartPanel(panelType string) bool {
 	default:
 		return false
 	}
-}
-
-func panelWidth(totalWidth, gridWidth, columns int) int {
-	if totalWidth <= 0 {
-		return 40
-	}
-	if gridWidth <= 0 {
-		gridWidth = 24 / max(1, columns)
-	}
-	width := totalWidth * gridWidth / 24
-	return max(24, width-1)
 }
 
 func panelHeight(gridHeight int) int {

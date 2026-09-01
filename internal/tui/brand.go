@@ -27,7 +27,7 @@ func renderBrand(width, height int) string {
 	}
 	logoWidth := lipgloss.Width(fullLogo)
 	logoHeight := strings.Count(fullLogo, "\n") + 1
-	if width >= logoWidth+4 && height >= logoHeight+10 {
+	if width >= logoWidth+4 && height >= logoHeight+18 {
 		return apolloTheme.Brand.Render(fullLogo)
 	}
 	return apolloTheme.Brand.Render("APOLLO")

@@ -38,7 +38,7 @@ var apolloTheme = uiTheme{
 	Shell:                   lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.AdaptiveColor{Light: "#B7C4D9", Dark: "#34445F"}).Padding(1, 2),
 	Panel:                   lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.AdaptiveColor{Light: "#C7D2E3", Dark: "#33445F"}).Padding(0, 1),
 	PanelSelected:           lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.AdaptiveColor{Light: "#C98512", Dark: "#F7C65A"}).Padding(0, 1),
-	MenuItem:                lipgloss.NewStyle().Padding(0, 1),
+	MenuItem:                lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#141A24"}).Padding(0, 1),
 	MenuSelected:            lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#FFF4D7", Dark: "#2B2A25"}).Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(lipgloss.AdaptiveColor{Light: "#C98512", Dark: "#F7C65A"}).Padding(0, 1),
 	ListTitle:               lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "#324A6D", Dark: "#C8D7F5"}),
 	ListDescription:         lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#607089", Dark: "#8492AB"}),

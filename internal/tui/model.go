@@ -73,6 +73,7 @@ type Model struct {
 	loadInput       textinput.Model
 	dashboardScroll viewport.Model
 	queryScroll     viewport.Model
+	helpScroll      viewport.Model
 
 	listLoading bool
 	listError   error
@@ -178,6 +179,7 @@ func New(source dashboard.Source, querier prometheus.Querier, options Options) M
 		loadInput:       loadInput,
 		dashboardScroll: viewport.New(0, 0),
 		queryScroll:     viewport.New(0, 0),
+		helpScroll:      viewport.New(0, 0),
 		listLoading:     true,
 		healthLoading:   true,
 		queryResults:    make(map[string]prometheus.Result),
@@ -194,12 +196,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = typed.Width
 		m.height = typed.Height
-		m.list.SetSize(max(20, typed.Width-6), max(6, typed.Height-13))
-		m.loadInput.Width = max(20, typed.Width-10)
-		m.dashboardScroll.Width = max(20, typed.Width-8)
-		m.dashboardScroll.Height = max(4, typed.Height-11)
-		m.queryScroll.Width = max(20, typed.Width-8)
-		m.queryScroll.Height = max(4, typed.Height-11)
+		m.layoutComponents()
 		if m.dashboard != nil {
 			m.updateDashboardScroll()
 		}
@@ -346,6 +343,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loadMode = false
 				m.loadInput.Blur()
 				m.loadInput.Reset()
+				m.layoutComponents()
 				return m, nil
 			case "enter":
 				path := strings.TrimSpace(m.loadInput.Value())
@@ -367,6 +365,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.listError = nil
 				m.summaries = nil
 				m.list.SetItems(nil)
+				m.layoutComponents()
 				return m, m.loadDashboardsCmd()
 			}
 		}
@@ -521,7 +520,9 @@ func (m Model) updateHelp(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	return m, nil
+	var cmd tea.Cmd
+	m.helpScroll, cmd = m.helpScroll.Update(msg)
+	return m, cmd
 }
 
 func (m *Model) startLoadMode() {
@@ -529,6 +530,25 @@ func (m *Model) startLoadMode() {
 	m.listError = nil
 	m.loadInput.Reset()
 	m.loadInput.Focus()
+	m.layoutComponents()
+}
+
+func (m *Model) layoutComponents() {
+	width := m.bodyContentWidth()
+	height := m.bodyContentHeight()
+	listHeight := height
+	if m.loadMode {
+		listHeight = max(1, listHeight-4)
+	}
+	m.list.SetSize(width, listHeight)
+	m.loadInput.Width = width
+	m.dashboardScroll.Width = width
+	m.dashboardScroll.Height = height
+	m.queryScroll.Width = width
+	m.queryScroll.Height = height
+	m.helpScroll.Width = width
+	m.helpScroll.Height = height
+	m.helpScroll.SetContent(m.helpContent())
 }
 
 func (m Model) loadDashboardsCmd() tea.Cmd {
