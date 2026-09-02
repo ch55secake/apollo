@@ -172,6 +172,21 @@ func TestModelMenuFitsNarrowTerminal(t *testing.T) {
 	}
 }
 
+func TestModelCentersMainMenu(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	for _, line := range strings.Split(m.View(), "\n") {
+		if strings.Contains(line, "╭") {
+			left := strings.Index(line, "╭")
+			if left < 5 || left > 9 {
+				t.Fatalf("menu shell is not centered: left=%d line=%q", left, line)
+			}
+			return
+		}
+	}
+	t.Fatal("menu shell was not rendered")
+}
+
 func TestModelSecondaryScreensFitNarrowTerminal(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{
 		DashboardSource:    "grafana",
@@ -217,13 +232,17 @@ func TestMenuSelectionRowsHaveStableWidth(t *testing.T) {
 func TestRenderChartFitsRequestedWidth(t *testing.T) {
 	series := []prometheus.Series{{
 		Labels: map[string]string{"job": "apollo"},
-		Samples: []prometheus.Sample{{
-			Timestamp: time.Now(),
-			Value:     1,
-		}},
+		Samples: []prometheus.Sample{
+			{Timestamp: time.Now().Add(-2 * time.Minute), Value: 1},
+			{Timestamp: time.Now().Add(-time.Minute), Value: 2},
+			{Timestamp: time.Now(), Value: 1},
+		},
 	}}
 	for _, size := range []struct{ width, height int }{{8, 5}, {16, 5}, {24, 6}, {40, 8}} {
 		assertViewWidth(t, renderChart(series, size.width, size.height), size.width)
+	}
+	if rendered := renderChart(series, 16, 5); strings.Contains(rendered, "job=") {
+		t.Fatalf("compact graph fell back to a text summary: %q", rendered)
 	}
 }
 

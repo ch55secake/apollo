@@ -62,8 +62,11 @@ func (m Model) menuView() string {
 	if m.viewHeight() >= 22 {
 		sections = append(sections, intro)
 	}
-	sections = append(sections, "", menu, "", m.menuStatus(contentWidth), m.footer("j/k move   enter select   1-4 quick select   q quit"))
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	sections = append(sections, "", menu, "", m.menuStatus(contentWidth))
+	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	centered := lipgloss.PlaceHorizontal(width, lipgloss.Center, content)
+	content = lipgloss.JoinVertical(lipgloss.Left, centered, m.footer("j/k move   enter select   1-4 quick select   q quit"))
+	return lipgloss.PlaceVertical(m.viewHeight(), lipgloss.Center, content)
 }
 
 func (m Model) listView() string {
@@ -545,10 +548,14 @@ func renderResult(result prometheus.Result, width, height int, chart bool) strin
 }
 
 func renderChart(series []prometheus.Series, width, height int) string {
-	if width < 24 || height < 6 {
+	if width < 8 || height < 3 {
 		return renderSeriesSummary(series, width)
 	}
-	chart := timeserieslinechart.New(width, height)
+	options := make([]timeserieslinechart.Option, 0, 1)
+	if width < 24 || height < 6 {
+		options = append(options, timeserieslinechart.WithXYSteps(0, 0))
+	}
+	chart := timeserieslinechart.New(width, height, options...)
 	for index, item := range series {
 		name := formatLabels(item.Labels)
 		if name == "" {
