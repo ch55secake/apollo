@@ -74,11 +74,13 @@ type Model struct {
 	dashboardScroll viewport.Model
 	queryScroll     viewport.Model
 	helpScroll      viewport.Model
+	catalogSort     catalogSort
 
-	listLoading bool
-	listError   error
-	summaries   []dashboard.DashboardSummary
-	loadMode    bool
+	listLoading        bool
+	listError          error
+	summaries          []dashboard.DashboardSummary
+	loadMode           bool
+	catalogSelectionID string
 
 	selectedSummary dashboard.DashboardSummary
 	dashboard       *dashboard.Dashboard
@@ -106,7 +108,7 @@ type dashboardItem struct {
 func (i dashboardItem) Title() string       { return i.summary.Title }
 func (i dashboardItem) Description() string { return strings.Join(i.summary.Tags, ", ") }
 func (i dashboardItem) FilterValue() string {
-	return i.summary.Title + " " + strings.Join(i.summary.Tags, " ")
+	return catalogFilterValue(i.summary)
 }
 
 type dashboardsLoadedMsg struct {
@@ -148,18 +150,11 @@ func New(source dashboard.Source, querier prometheus.Querier, options Options) M
 		options.MaxDataPoints = 120
 	}
 
-	delegate := list.NewDefaultDelegate()
-	delegate.SetHeight(2)
-	delegate.SetSpacing(1)
-	delegate.Styles.NormalTitle = apolloTheme.ListTitle
-	delegate.Styles.NormalDesc = apolloTheme.ListDescription
-	delegate.Styles.SelectedTitle = apolloTheme.ListSelectedTitle
-	delegate.Styles.SelectedDesc = apolloTheme.ListSelectedDescription
-	delegate.Styles.DimmedTitle = apolloTheme.ListDescription
-	delegate.Styles.DimmedDesc = apolloTheme.ListDescription
-
-	dashboardList := list.New(nil, delegate, 0, 0)
+	dashboardList := list.New(nil, catalogDelegate{}, 0, 0)
 	dashboardList.Title = "Dashboard catalog"
+	dashboardList.SetShowTitle(false)
+	dashboardList.SetShowHelp(false)
+	dashboardList.DisableQuitKeybindings()
 	dashboardList.Styles.Title = apolloTheme.Section
 	dashboardList.Styles.PaginationStyle = apolloTheme.Muted
 	dashboardList.Styles.HelpStyle = apolloTheme.Muted
@@ -180,6 +175,7 @@ func New(source dashboard.Source, querier prometheus.Querier, options Options) M
 		dashboardScroll: viewport.New(0, 0),
 		queryScroll:     viewport.New(0, 0),
 		helpScroll:      viewport.New(0, 0),
+		catalogSort:     titleSort,
 		listLoading:     true,
 		healthLoading:   true,
 		queryResults:    make(map[string]prometheus.Result),
@@ -211,12 +207,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.listLoading = false
 		m.listError = typed.err
-		m.summaries = typed.summaries
-		items := make([]list.Item, 0, len(typed.summaries))
-		for _, summary := range typed.summaries {
-			items = append(items, dashboardItem{summary: summary})
+		if typed.err != nil {
+			return m, nil
 		}
-		return m, m.list.SetItems(items)
+		selectedID := m.selectedCatalogID()
+		m.catalogSelectionID = selectedID
+		m.summaries = sortedSummaries(typed.summaries, m.catalogSort)
+		cmd := m.list.SetItems(catalogItems(m.summaries))
+		m.restoreCatalogSelection(selectedID)
+		return m, cmd
+
+	case list.FilterMatchesMsg:
+		if m.screen == dashboardListScreen && m.catalogSelectionID != "" {
+			var cmd tea.Cmd
+			m.list, cmd = m.list.Update(typed)
+			m.restoreCatalogSelection(m.catalogSelectionID)
+			m.catalogSelectionID = ""
+			return m, cmd
+		}
 
 	case dashboardLoadedMsg:
 		if typed.generation != m.dashboardLoadGeneration {
@@ -374,11 +382,24 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.list.FilterState() == list.Filtering {
+		if key, ok := msg.(tea.KeyMsg); ok && key.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
+	}
+
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "esc", "backspace":
+			if m.list.FilterState() == list.FilterApplied {
+				m.list.ResetFilter()
+				return m, nil
+			}
 			m.screen = mainMenuScreen
 			return m, nil
 		case "r":
@@ -389,12 +410,20 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.loadDashboardsCmd()
 			}
 		case "l":
-			if !m.list.SettingFilter() {
+			if m.list.FilterState() == list.Unfiltered {
 				m.startLoadMode()
 				return m, textinput.Blink
 			}
+		case "s":
+			selectedID := m.selectedCatalogID()
+			m.catalogSelectionID = selectedID
+			m.catalogSort = m.catalogSort.next()
+			m.summaries = sortedSummaries(m.summaries, m.catalogSort)
+			cmd := m.list.SetItems(catalogItems(m.summaries))
+			m.restoreCatalogSelection(selectedID)
+			return m, cmd
 		case "enter":
-			if !m.list.SettingFilter() {
+			if m.list.FilterState() != list.Filtering {
 				item, ok := m.list.SelectedItem().(dashboardItem)
 				if ok {
 					m.selectedSummary = item.summary
@@ -536,11 +565,12 @@ func (m *Model) startLoadMode() {
 func (m *Model) layoutComponents() {
 	width := m.bodyContentWidth()
 	height := m.bodyContentHeight()
+	listWidth, _ := m.catalogLayout()
 	listHeight := height
 	if m.loadMode {
 		listHeight = max(1, listHeight-4)
 	}
-	m.list.SetSize(width, listHeight)
+	m.list.SetSize(listWidth, listHeight)
 	m.loadInput.Width = width
 	m.dashboardScroll.Width = width
 	m.dashboardScroll.Height = height
@@ -549,6 +579,39 @@ func (m *Model) layoutComponents() {
 	m.helpScroll.Width = min(width, 64)
 	m.helpScroll.Height = height
 	m.helpScroll.SetContent(m.helpContent())
+}
+
+func (m Model) selectedCatalogID() string {
+	item, ok := m.list.SelectedItem().(dashboardItem)
+	if !ok {
+		return ""
+	}
+	return item.summary.ID
+}
+
+func (m *Model) restoreCatalogSelection(id string) {
+	if id == "" {
+		return
+	}
+	items := m.list.Items()
+	if m.list.FilterState() != list.Unfiltered {
+		items = m.list.VisibleItems()
+		if len(items) == 0 {
+			return
+		}
+	}
+	for index, item := range items {
+		dashboardItem, ok := item.(dashboardItem)
+		if ok && dashboardItem.summary.ID == id {
+			m.list.Select(index)
+			m.catalogSelectionID = ""
+			return
+		}
+	}
+	if len(items) == 0 {
+		m.list.ResetSelected()
+	}
+	m.catalogSelectionID = ""
 }
 
 func (m Model) loadDashboardsCmd() tea.Cmd {
