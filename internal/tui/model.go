@@ -581,7 +581,7 @@ func (m Model) checkPrometheusCmd() tea.Cmd {
 	generation := m.healthGeneration
 	return func() tea.Msg {
 		if querier == nil {
-			return healthLoadedMsg{err: fmt.Errorf("Prometheus client is not configured"), generation: generation}
+			return healthLoadedMsg{err: fmt.Errorf("prometheus client is not configured"), generation: generation}
 		}
 		_, err := querier.Query(context.Background(), prometheus.QueryRequest{
 			Expr:    "vector(1)",
