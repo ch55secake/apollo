@@ -546,7 +546,7 @@ func (m *Model) layoutComponents() {
 	m.dashboardScroll.Height = height
 	m.queryScroll.Width = width
 	m.queryScroll.Height = height
-	m.helpScroll.Width = width
+	m.helpScroll.Width = min(width, 64)
 	m.helpScroll.Height = height
 	m.helpScroll.SetContent(m.helpContent())
 }

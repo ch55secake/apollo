@@ -187,6 +187,20 @@ func TestModelCentersMainMenu(t *testing.T) {
 	t.Fatal("menu shell was not rendered")
 }
 
+func TestMainMenuCentersShortcutFooter(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	for _, line := range strings.Split(m.View(), "\n") {
+		if strings.Contains(line, "// j/k") {
+			if left := strings.Index(line, "// j/k"); left < 15 {
+				t.Fatalf("main-menu shortcuts are not centered: left=%d line=%q", left, line)
+			}
+			return
+		}
+	}
+	t.Fatal("main-menu shortcuts were not rendered")
+}
+
 func TestModelSecondaryScreensFitNarrowTerminal(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{
 		DashboardSource:    "grafana",
@@ -196,7 +210,41 @@ func TestModelSecondaryScreensFitNarrowTerminal(t *testing.T) {
 	m = update(t, m, tea.WindowSizeMsg{Width: 40, Height: 20})
 	for _, current := range []screen{connectionScreen, helpScreen} {
 		m.screen = current
-		assertViewBounds(t, m.View(), 40, 20)
+		view := m.View()
+		assertViewBounds(t, view, 40, 20)
+		for _, line := range strings.Split(view, "\n") {
+			if strings.Contains(line, "APOLLO") {
+				if left := strings.Index(line, "APOLLO"); left < 2 {
+					t.Fatalf("%d screen header is missing left padding: %q", current, line)
+				}
+				break
+			}
+		}
+	}
+}
+
+func TestStaticSecondaryBodiesCenterAsBlocks(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{
+		DashboardSource:    "grafana",
+		DashboardEndpoint:  "https://grafana.example.test",
+		PrometheusEndpoint: "https://prometheus.example.test",
+	})
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	for _, current := range []screen{connectionScreen, helpScreen} {
+		m.screen = current
+		view := m.View()
+		needle := "LINK STATUS"
+		if current == helpScreen {
+			needle = "HOME"
+		}
+		for _, line := range strings.Split(view, "\n") {
+			if strings.Contains(line, needle) {
+				if left := strings.Index(line, needle); left < 15 {
+					t.Fatalf("%d body is not centered: left=%d line=%q", current, left, line)
+				}
+				break
+			}
+		}
 	}
 }
 

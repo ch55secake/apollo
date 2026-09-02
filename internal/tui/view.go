@@ -65,7 +65,7 @@ func (m Model) menuView() string {
 	sections = append(sections, "", menu, "", m.menuStatus(contentWidth))
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
 	centered := lipgloss.PlaceHorizontal(width, lipgloss.Center, content)
-	content = lipgloss.JoinVertical(lipgloss.Left, centered, m.footer("j/k move   enter select   1-4 quick select   q quit"))
+	content = lipgloss.JoinVertical(lipgloss.Left, centered, m.centeredFooter("j/k move   enter select   1-4 quick select   q quit", width))
 	return lipgloss.PlaceVertical(m.viewHeight(), lipgloss.Center, content)
 }
 
@@ -91,7 +91,7 @@ func (m Model) dashboardView() string {
 		name = m.dashboard.Title
 	}
 	if m.detailLoading {
-		return m.shell("Dashboard", name, apolloTheme.Warning.Render("SYNCING DASHBOARD..."), "esc back   q quit")
+		return m.centeredShell("Dashboard", name, apolloTheme.Warning.Render("SYNCING DASHBOARD..."), "esc back   q quit")
 	}
 	if m.detailError != nil {
 		body := lipgloss.JoinVertical(
@@ -99,10 +99,10 @@ func (m Model) dashboardView() string {
 			apolloTheme.Error.Render("Unable to load dashboard"),
 			apolloTheme.Muted.Render(m.detailError.Error()),
 		)
-		return m.shell("Dashboard", name, body, "r retry   esc back   q quit")
+		return m.centeredShell("Dashboard", name, body, "r retry   esc back   q quit")
 	}
 	if m.dashboard == nil {
-		return m.shell("Dashboard", name, apolloTheme.Muted.Render("No dashboard selected"), "esc back   q quit")
+		return m.centeredShell("Dashboard", name, apolloTheme.Muted.Render("No dashboard selected"), "esc back   q quit")
 	}
 
 	from := m.dashboard.Time.From
@@ -140,22 +140,22 @@ func (m Model) connectionView() string {
 
 	rows := []string{
 		apolloTheme.Section.Render("LINK STATUS"),
-		statusRow("Dashboard source", emptyDash(m.options.DashboardSource)),
-		statusRow("Dashboard endpoint", dashboardEndpoint),
-		statusRow("Dashboard catalog", m.catalogBadge()),
+		statusRow(m.bodyContentWidth(), "Dashboard source", emptyDash(m.options.DashboardSource)),
+		statusRow(m.bodyContentWidth(), "Dashboard endpoint", dashboardEndpoint),
+		statusRow(m.bodyContentWidth(), "Dashboard catalog", m.catalogBadge()),
 		"",
 		apolloTheme.Section.Render("PROMETHEUS"),
-		statusRow("Endpoint", prometheusEndpoint),
-		statusRow("Health probe", m.prometheusBadge()),
+		statusRow(m.bodyContentWidth(), "Endpoint", prometheusEndpoint),
+		statusRow(m.bodyContentWidth(), "Health probe", m.prometheusBadge()),
 	}
 	if m.healthError != nil {
 		rows = append(rows, apolloTheme.Error.Render("  "+m.healthError.Error()))
 	}
-	return m.shell("Connection status", "LIVE SERVICE TELEMETRY", strings.Join(rows, "\n"), "r refresh checks   esc menu   q quit")
+	return m.centeredShell("Connection status", "LIVE SERVICE TELEMETRY", strings.Join(rows, "\n"), "r refresh checks   esc menu   q quit")
 }
 
 func (m Model) helpView() string {
-	return m.shell("Help and shortcuts", "FIELD MANUAL", m.helpScroll.View(), "up/down scroll   esc menu   q quit")
+	return m.centeredShell("Help and shortcuts", "FIELD MANUAL", m.helpScroll.View(), "up/down scroll   esc menu   q quit")
 }
 
 func (m Model) helpContent() string {
@@ -186,18 +186,32 @@ func (m Model) helpContent() string {
 }
 
 func (m Model) shell(title, subtitle, body, help string) string {
+	return m.renderShell(title, subtitle, body, help, false)
+}
+
+func (m Model) centeredShell(title, subtitle, body, help string) string {
+	return m.renderShell(title, subtitle, body, help, true)
+}
+
+func (m Model) renderShell(title, subtitle, body, help string, centerBody bool) string {
 	width := m.viewWidth()
-	header := lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Brand.Render("APOLLO"), apolloTheme.Muted.Render("  /  "+strings.ToUpper(truncate(title, max(1, width-10)))))
+	safeWidth := max(1, width-4)
+	header := lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Brand.Render("APOLLO"), apolloTheme.Muted.Render("  /  "+strings.ToUpper(truncate(title, max(1, safeWidth-10)))))
 	if subtitle != "" {
-		header = lipgloss.JoinVertical(lipgloss.Left, header, lipgloss.NewStyle().MaxWidth(max(1, width)).Render(subtitle))
+		header = lipgloss.JoinVertical(lipgloss.Left, header, lipgloss.NewStyle().MaxWidth(safeWidth).Render(subtitle))
 	}
-	bodyStyle := apolloTheme.Shell.Width(max(1, width-apolloTheme.Shell.GetHorizontalBorderSize()))
-	return lipgloss.JoinVertical(
+	header = lipgloss.NewStyle().Width(safeWidth).AlignHorizontal(lipgloss.Center).Render(header)
+	if centerBody {
+		body = centerBlock(body, max(1, safeWidth-apolloTheme.Shell.GetHorizontalFrameSize()))
+	}
+	bodyStyle := apolloTheme.Shell.Width(max(1, safeWidth-apolloTheme.Shell.GetHorizontalBorderSize()))
+	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		lipgloss.NewStyle().MaxWidth(max(1, width)).Render(header),
+		header,
 		bodyStyle.Render(body),
-		m.footer(help),
+		m.centeredFooter(help, safeWidth),
 	)
+	return lipgloss.NewStyle().Padding(1, 2).Render(content)
 }
 
 func (m Model) menuStatus(width int) string {
@@ -252,16 +266,32 @@ func (m Model) prometheusBadge() string {
 	return apolloTheme.Success.Render("ONLINE")
 }
 
-func statusRow(label, value string) string {
-	return fmt.Sprintf("%-22s %s", apolloTheme.Muted.Render(label), value)
+func statusRow(width int, label, value string) string {
+	labelWidth := lipgloss.Width(label)
+	gap := max(1, 22-labelWidth)
+	valueWidth := max(1, width-labelWidth-gap)
+	value = lipgloss.NewStyle().MaxWidth(valueWidth).Render(value)
+	return apolloTheme.Muted.Render(label) + strings.Repeat(" ", gap) + value
 }
 
 func shortcutRow(key, description string) string {
 	return lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Key.Render(key), "  ", apolloTheme.Muted.Render(description))
 }
 
-func (m Model) footer(value string) string {
-	return "\n" + apolloTheme.Muted.Render("// "+truncate(value, max(1, m.viewWidth()-3)))
+func (m Model) centeredFooter(value string, width int) string {
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, m.footerWidth(value, width))
+}
+
+func (m Model) footerWidth(value string, width int) string {
+	return "\n" + apolloTheme.Muted.Render("// "+truncate(value, max(1, width-3)))
+}
+
+func centerBlock(value string, width int) string {
+	blockWidth := lipgloss.Width(value)
+	if blockWidth == 0 || blockWidth >= width {
+		return value
+	}
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, lipgloss.NewStyle().Width(blockWidth).AlignHorizontal(lipgloss.Left).Render(value))
 }
 
 func (m Model) viewWidth() int {
@@ -279,11 +309,11 @@ func (m Model) viewHeight() int {
 }
 
 func (m Model) bodyContentWidth() int {
-	return max(1, m.viewWidth()-apolloTheme.Shell.GetHorizontalFrameSize())
+	return max(1, m.viewWidth()-4-apolloTheme.Shell.GetHorizontalFrameSize())
 }
 
 func (m Model) bodyContentHeight() int {
-	return max(1, m.viewHeight()-8)
+	return max(1, m.viewHeight()-10)
 }
 
 func (m Model) dashboardWidth() int {
