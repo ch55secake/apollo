@@ -22,8 +22,11 @@ apollo
 Use `--config PATH` to load a specific configuration file. The current working
 directory's `config.yaml` takes precedence over the XDG configuration.
 
-From the dashboard list, press `l` to load a dashboard JSON file or directory
-interactively. Use `enter` to open a listed dashboard.
+Apollo opens on a command menu. Choose `Browse dashboards` to open the catalog,
+`Load JSON path` to switch to a local dashboard file or directory, `Connection
+status` to inspect the configured links, or `Help and shortcuts` for the full
+key reference. The number keys `1` through `4` select the first four actions
+directly.
 
 To load dashboards from Grafana instead, set `dashboards.source` to `grafana`
 and configure `dashboards.grafana.url` and its bearer token.
@@ -41,9 +44,10 @@ The init command is also available through the flake:
 nix run ch55secake/apollo -- init
 ```
 
-Use the dashboard list to filter and select a dashboard. From a dashboard,
+Use the dashboard catalog to filter and select a dashboard. From a dashboard,
 use `j` and `k` to select a panel and `enter` to inspect its PromQL query and
-result. Press `r` to refresh and `esc` to go back.
+result. In query detail, use `h` and `l` to switch targets. Press `r` to
+refresh, `esc` to go back, and `q` to quit from any screen.
 
 Apollo currently supports Grafana classic dashboards, Grafana resource
 dashboards with a `spec` payload, Prometheus matrix/vector/scalar results, and
