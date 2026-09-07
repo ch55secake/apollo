@@ -81,8 +81,15 @@ func (m Model) listView() string {
 			"",
 			body,
 		)
+	} else if _, previewWidth := m.catalogLayout(); previewWidth > 0 {
+		body = lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			body,
+			"  ",
+			m.catalogPreview(previewWidth, m.bodyContentHeight()),
+		)
 	}
-	return m.shell("Dashboard catalog", status, body, "j/k move   enter open   l load path   r refresh   esc menu   q quit")
+	return m.shell("Dashboard catalog", status, body, "j/k move   enter open   / search   s sort   l load path   r refresh   esc menu   q quit")
 }
 
 func (m Model) dashboardView() string {
@@ -168,6 +175,8 @@ func (m Model) helpContent() string {
 		"",
 		apolloTheme.Section.Render("DASHBOARD CATALOG"),
 		shortcutRow("enter", "open the selected dashboard"),
+		shortcutRow("/", "search title, source, UID, folder, or tags"),
+		shortcutRow("s", "cycle title, starred, and source sorting"),
 		shortcutRow("l", "load a local JSON file or directory"),
 		shortcutRow("r", "refresh the catalog"),
 		shortcutRow("esc", "return to the home screen"),
@@ -231,16 +240,85 @@ func (m Model) menuStatus(width int) string {
 }
 
 func (m Model) catalogStatus() string {
+	var status string
 	if m.listLoading {
-		return apolloTheme.Warning.Render("● CATALOG SYNC IN PROGRESS")
+		status = apolloTheme.Warning.Render("● CATALOG SYNC IN PROGRESS")
+	} else if m.listError != nil {
+		status = apolloTheme.Error.Render("● CATALOG UNAVAILABLE  ") + apolloTheme.Muted.Render(m.listError.Error())
+	} else if len(m.summaries) == 0 {
+		status = apolloTheme.Warning.Render("● CATALOG EMPTY  ") + apolloTheme.Muted.Render("Use l to load a local JSON path")
+	} else {
+		status = apolloTheme.Success.Render(fmt.Sprintf("● %d DASHBOARDS READY", len(m.summaries)))
 	}
-	if m.listError != nil {
-		return apolloTheme.Error.Render("● CATALOG UNAVAILABLE  ") + apolloTheme.Muted.Render(m.listError.Error())
+	return lipgloss.JoinHorizontal(lipgloss.Center, status, "  ", apolloTheme.Muted.Render("SORT "+m.catalogSort.String()))
+}
+
+func (m Model) catalogLayout() (listWidth, previewWidth int) {
+	totalWidth := m.bodyContentWidth()
+	if m.loadMode || totalWidth < 88 {
+		return totalWidth, 0
 	}
-	if len(m.summaries) == 0 {
-		return apolloTheme.Warning.Render("● CATALOG EMPTY  ") + apolloTheme.Muted.Render("Use l to load a local JSON path")
+
+	previewWidth = min(38, max(30, totalWidth/3))
+	listWidth = max(1, totalWidth-previewWidth-2)
+	return listWidth, previewWidth
+}
+
+func (m Model) catalogPreview(width, height int) string {
+	panelWidth := max(1, width-apolloTheme.Panel.GetHorizontalFrameSize())
+	panelHeight := max(1, height-apolloTheme.Panel.GetVerticalFrameSize())
+	contentWidth := max(1, panelWidth-apolloTheme.Panel.GetHorizontalPadding())
+
+	if m.listLoading {
+		content := strings.Join([]string{
+			apolloTheme.Section.Render("SELECTED DASHBOARD"),
+			"",
+			apolloTheme.Warning.Render("SYNCING CATALOG"),
+			apolloTheme.Muted.Render("Dashboard metadata will appear here."),
+		}, "\n")
+		return apolloTheme.Panel.Width(panelWidth).Height(panelHeight).Render(content)
 	}
-	return apolloTheme.Success.Render(fmt.Sprintf("● %d DASHBOARDS READY", len(m.summaries)))
+	if m.listError != nil && len(m.summaries) == 0 {
+		content := strings.Join([]string{
+			apolloTheme.Section.Render("SELECTED DASHBOARD"),
+			"",
+			apolloTheme.Error.Render("CATALOG UNAVAILABLE"),
+			apolloTheme.Muted.Render(m.listError.Error()),
+		}, "\n")
+		return apolloTheme.Panel.Width(panelWidth).Height(panelHeight).Render(content)
+	}
+
+	item, ok := m.list.SelectedItem().(dashboardItem)
+	if !ok {
+		content := strings.Join([]string{
+			apolloTheme.Section.Render("SELECTED DASHBOARD"),
+			"",
+			apolloTheme.Muted.Render("Select a dashboard to inspect its metadata."),
+		}, "\n")
+		return apolloTheme.Panel.Width(panelWidth).Height(panelHeight).Render(content)
+	}
+
+	summary := item.summary
+	rows := []string{
+		apolloTheme.Section.Render("SELECTED DASHBOARD"),
+		apolloTheme.Title.Render(catalogTitle(summary)),
+		"",
+		statusRow(contentWidth, "Source", catalogSourceLabel(summary)),
+		statusRow(contentWidth, "UID", emptyDash(summary.UID)),
+	}
+	if summary.FolderUID != "" {
+		rows = append(rows, statusRow(contentWidth, "Folder UID", summary.FolderUID))
+	}
+	if len(summary.Tags) > 0 {
+		rows = append(rows, statusRow(contentWidth, "Tags", strings.Join(summary.Tags, ", ")))
+	}
+	if summary.URL != "" {
+		rows = append(rows, statusRow(contentWidth, "URL", summary.URL))
+	}
+	rows = append(rows, "", lipgloss.JoinHorizontal(lipgloss.Center, apolloTheme.Key.Render("ENTER"), " ", apolloTheme.Muted.Render("open dashboard")))
+
+	content := strings.Join(rows, "\n")
+	return apolloTheme.PanelSelected.Width(panelWidth).Height(panelHeight).Render(content)
 }
 
 func (m Model) catalogBadge() string {
