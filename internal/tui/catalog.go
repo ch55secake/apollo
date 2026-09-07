@@ -155,7 +155,7 @@ func sortedSummaries(summaries []dashboard.DashboardSummary, mode catalogSort) [
 				return first.Starred
 			}
 		case sourceSort:
-			if strings.ToLower(first.Source) != strings.ToLower(second.Source) {
+			if !strings.EqualFold(first.Source, second.Source) {
 				return strings.ToLower(first.Source) < strings.ToLower(second.Source)
 			}
 		}
