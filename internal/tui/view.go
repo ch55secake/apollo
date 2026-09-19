@@ -654,7 +654,11 @@ func renderPanel(m Model, index int, panel dashboard.Panel, width, height int) s
 			if err := m.queryErrors[key]; err != nil {
 				content = apolloTheme.Error.Render(err.Error())
 			} else if result, ok := m.queryResults[key]; ok {
-				content = renderResult(result, innerWidth, innerHeight, isChartPanel(panel.Type), target.LegendFormat)
+				if isStatPanel(panel.Type) {
+					content = renderStatResult(result, innerWidth, innerHeight, target.LegendFormat)
+				} else {
+					content = renderResult(result, innerWidth, innerHeight, isChartPanel(panel.Type), target.LegendFormat)
+				}
 			} else {
 				content = apolloTheme.Warning.Render("Loading query...")
 			}
@@ -742,6 +746,30 @@ func renderResult(result prometheus.Result, width, height int, chart bool, legen
 		body = apolloTheme.Warning.Render("Warnings: "+strings.Join(result.Warnings, "; ")) + "\n" + body
 	}
 	return body
+}
+
+func renderStatResult(result prometheus.Result, width, height int, legendFormat string) string {
+	if result.Scalar != nil {
+		return renderStatValue("", result.Scalar.Value, width, height)
+	}
+	if len(result.Series) == 0 {
+		return "No data"
+	}
+	if len(result.Series) == 1 && len(result.Series[0].Samples) > 0 {
+		series := result.Series[0]
+		return renderStatValue(seriesDisplayName(series.Labels, legendFormat), series.Samples[len(series.Samples)-1].Value, width, height)
+	}
+	return renderSeriesSummary(result.Series, width)
+}
+
+func renderStatValue(label string, value float64, width, height int) string {
+	valueText := apolloTheme.Brand.Render(fmt.Sprintf("%.4g", value))
+	rows := []string{valueText}
+	if label != "" {
+		rows = append(rows, apolloTheme.Muted.Render(truncate(label, width)))
+	}
+	content := lipgloss.JoinVertical(lipgloss.Center, rows...)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
 }
 
 func renderChart(series []prometheus.Series, width, height int) string {
@@ -985,6 +1013,15 @@ func formatLabels(labels map[string]string) string {
 func isChartPanel(panelType string) bool {
 	switch strings.ToLower(panelType) {
 	case "graph", "timeseries", "timeseries-chart":
+		return true
+	default:
+		return false
+	}
+}
+
+func isStatPanel(panelType string) bool {
+	switch strings.ToLower(panelType) {
+	case "stat", "singlestat", "gauge":
 		return true
 	default:
 		return false

@@ -406,6 +406,21 @@ func TestTimeRangeSelectionRefreshesDashboardQueries(t *testing.T) {
 	}
 }
 
+func TestStatPanelRendersReducedValue(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{Series: []prometheus.Series{{
+		Samples: []prometheus.Sample{{Timestamp: time.Now().Add(-24 * time.Hour), Value: 100}, {Timestamp: time.Now(), Value: 12345678}},
+	}}}
+	panel := dashboard.Panel{Type: "stat", Targets: []dashboard.Target{{Expr: "avg_over_time(speedtest_download_bits_per_second[24h])"}}}
+	rendered := renderPanel(m, 0, panel, 50, 10)
+	if !strings.Contains(rendered, "1.235e+07") {
+		t.Fatalf("expected stat value, got %q", rendered)
+	}
+	if strings.Contains(rendered, "100") {
+		t.Fatalf("expected only the latest reduction, got %q", rendered)
+	}
+}
+
 func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})
