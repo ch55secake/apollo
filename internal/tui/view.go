@@ -653,7 +653,7 @@ func renderPanelChart(m Model, panelIndex int, panel dashboard.Panel, width, hei
 			if name == "" {
 				name = fmt.Sprintf("series-%d", len(series)+1)
 			}
-			series = append(series, namedSeries{name: name, series: item})
+			series = append(series, namedSeries{name: name, series: item, color: panelSeriesColor(panel.FieldConfig, name)})
 		}
 	}
 	if len(series) > 0 {
@@ -723,6 +723,7 @@ func renderChartWithLegend(series []prometheus.Series, width, height int, legend
 type namedSeries struct {
 	name   string
 	series prometheus.Series
+	color  string
 }
 
 func renderNamedChart(series []namedSeries, width, height int) string {
@@ -746,7 +747,7 @@ func renderNamedChart(series []namedSeries, width, height int) string {
 		// Dataset keys must be unique even when a Grafana legend template makes
 		// two series render to the same label.
 		dataset := fmt.Sprintf("%d:%s", index, item.name)
-		chart.SetDataSetStyle(dataset, lipgloss.NewStyle().Foreground(graphPalette[index%len(graphPalette)]))
+		chart.SetDataSetStyle(dataset, lipgloss.NewStyle().Foreground(seriesColor(item, index)))
 		for _, sample := range item.series.Samples {
 			if math.IsNaN(sample.Value) || math.IsInf(sample.Value, 0) {
 				continue
@@ -771,10 +772,50 @@ func renderChartLegend(series []namedSeries, width int) string {
 		if len(item.series.Samples) > 0 {
 			last = fmt.Sprintf("%.4g", item.series.Samples[len(item.series.Samples)-1].Value)
 		}
-		entry := lipgloss.NewStyle().Foreground(graphPalette[index%len(graphPalette)]).Render("● ") + item.name + " " + apolloTheme.Muted.Render(last)
+		entry := lipgloss.NewStyle().Foreground(seriesColor(item, index)).Render("● ") + item.name + " " + apolloTheme.Muted.Render(last)
 		entries = append(entries, entry)
 	}
 	return wrapLegend(entries, width)
+}
+
+func seriesColor(series namedSeries, index int) lipgloss.Color {
+	if series.color != "" {
+		return lipgloss.Color(normalizeGrafanaColor(series.color))
+	}
+	return graphPalette[index%len(graphPalette)]
+}
+
+func panelSeriesColor(config dashboard.FieldConfig, name string) string {
+	for _, override := range config.Overrides {
+		if override.MatcherID == "byName" && override.MatcherOptions == name {
+			return override.FixedColor
+		}
+		if override.MatcherID == "byRegexp" {
+			pattern, err := regexp.Compile(override.MatcherOptions)
+			if err == nil && pattern.MatchString(name) {
+				return override.FixedColor
+			}
+		}
+	}
+	if strings.EqualFold(config.ColorMode, "fixed") {
+		return config.FixedColor
+	}
+	return ""
+}
+
+func normalizeGrafanaColor(color string) string {
+	if strings.HasPrefix(color, "#") {
+		return color
+	}
+	if mapped, ok := grafanaNamedColors[strings.ToLower(strings.TrimSpace(color))]; ok {
+		return mapped
+	}
+	return color
+}
+
+var grafanaNamedColors = map[string]string{
+	"blue": "#5794F2", "green": "#73BF69", "red": "#F2495C", "orange": "#FF9830",
+	"yellow": "#FADE2A", "purple": "#B877D9", "dark-green": "#37872D", "dark-red": "#C4162A",
 }
 
 func renderNamedSeriesSummary(series []namedSeries, width int) string {

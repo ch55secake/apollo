@@ -55,8 +55,24 @@ type Panel struct {
 	Targets       []Target
 	Text          string
 	MaxDataPoints int
+	FieldConfig   FieldConfig
 	Options       json.RawMessage
 	Raw           json.RawMessage
+}
+
+// FieldConfig preserves the Grafana field colour settings that affect a
+// terminal chart. Apollo intentionally keeps the normalized form small while
+// retaining the common defaults and per-series overrides.
+type FieldConfig struct {
+	ColorMode  string
+	FixedColor string
+	Overrides  []FieldOverride
+}
+
+type FieldOverride struct {
+	MatcherID      string
+	MatcherOptions string
+	FixedColor     string
 }
 
 type Target struct {

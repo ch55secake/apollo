@@ -338,6 +338,26 @@ func TestPanelChartCombinesEveryPrometheusTarget(t *testing.T) {
 	}
 }
 
+func TestPanelSeriesColorHonorsGrafanaFieldConfiguration(t *testing.T) {
+	config := dashboard.FieldConfig{
+		ColorMode: "fixed", FixedColor: "blue",
+		Overrides: []dashboard.FieldOverride{{MatcherID: "byName", MatcherOptions: "api-2", FixedColor: "red"}},
+	}
+	if got := panelSeriesColor(config, "api-1"); got != "blue" {
+		t.Fatalf("expected default fixed color, got %q", got)
+	}
+	if got := panelSeriesColor(config, "api-2"); got != "red" {
+		t.Fatalf("expected by-name override, got %q", got)
+	}
+	if got := normalizeGrafanaColor("red"); got != "#F2495C" {
+		t.Fatalf("unexpected Grafana named color: %q", got)
+	}
+	config.Overrides = append(config.Overrides, dashboard.FieldOverride{MatcherID: "byRegexp", MatcherOptions: `^db-`, FixedColor: "green"})
+	if got := panelSeriesColor(config, "db-primary"); got != "green" {
+		t.Fatalf("expected regular-expression override, got %q", got)
+	}
+}
+
 func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})

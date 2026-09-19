@@ -51,8 +51,11 @@ refresh, `esc` to go back, and `q` to quit from any screen.
 
 Apollo currently supports Grafana classic dashboards, Grafana resource
 dashboards with a `spec` payload, Prometheus matrix/vector/scalar results, and
-basic time-series, stat, table, and text panel rendering. Unsupported Grafana
-features are left as raw panel data or shown as placeholders.
+basic time-series, stat, table, and text panel rendering. Time-series panels
+run every compatible Prometheus target, honour `{{label}}` legend templates,
+and use Grafana-inspired series colours; fixed and by-name/by-regexp field
+colour overrides are also supported. Unsupported Grafana features are left as
+raw panel data or shown as placeholders.
 
 ## Development
 

@@ -33,7 +33,27 @@ type panelJSON struct {
 	Options       json.RawMessage   `json:"options"`
 	Content       string            `json:"content"`
 	MaxDataPoints int               `json:"maxDataPoints"`
+	FieldConfig   fieldConfigJSON   `json:"fieldConfig"`
 	Raw           json.RawMessage   `json:"-"`
+}
+
+type fieldConfigJSON struct {
+	Defaults struct {
+		Color struct {
+			Mode       string `json:"mode"`
+			FixedColor string `json:"fixedColor"`
+		} `json:"color"`
+	} `json:"defaults"`
+	Overrides []struct {
+		Matcher struct {
+			ID      string          `json:"id"`
+			Options json.RawMessage `json:"options"`
+		} `json:"matcher"`
+		Properties []struct {
+			ID    string          `json:"id"`
+			Value json.RawMessage `json:"value"`
+		} `json:"properties"`
+	} `json:"overrides"`
 }
 
 type rowJSON struct {
@@ -166,6 +186,7 @@ func flattenPanel(raw panelJSON, row string) []Panel {
 		Row:           row,
 		Datasource:    datasource,
 		MaxDataPoints: raw.MaxDataPoints,
+		FieldConfig:   normalizeFieldConfig(raw.FieldConfig),
 		Options:       append(json.RawMessage(nil), raw.Options...),
 		Raw:           panelRaw(raw),
 	}
@@ -204,6 +225,50 @@ func flattenPanel(raw panelJSON, row string) []Panel {
 		})
 	}
 	return []Panel{panel}
+}
+
+func normalizeFieldConfig(raw fieldConfigJSON) FieldConfig {
+	config := FieldConfig{
+		ColorMode:  raw.Defaults.Color.Mode,
+		FixedColor: raw.Defaults.Color.FixedColor,
+	}
+	for _, rawOverride := range raw.Overrides {
+		options := rawString(rawOverride.Matcher.Options)
+		fixedColor := ""
+		for _, property := range rawOverride.Properties {
+			if property.ID == "color" {
+				fixedColor = fieldColor(property.Value)
+			}
+		}
+		if fixedColor == "" {
+			continue
+		}
+		config.Overrides = append(config.Overrides, FieldOverride{
+			MatcherID: rawOverride.Matcher.ID, MatcherOptions: options, FixedColor: fixedColor,
+		})
+	}
+	return config
+}
+
+func rawString(raw json.RawMessage) string {
+	var value string
+	if json.Unmarshal(raw, &value) == nil {
+		return value
+	}
+	return ""
+}
+
+func fieldColor(raw json.RawMessage) string {
+	if color := rawString(raw); color != "" {
+		return color
+	}
+	var value struct {
+		FixedColor string `json:"fixedColor"`
+	}
+	if json.Unmarshal(raw, &value) == nil {
+		return value.FixedColor
+	}
+	return ""
 }
 
 func parseDatasource(raw json.RawMessage) DataSourceRef {

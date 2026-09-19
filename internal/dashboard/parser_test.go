@@ -46,6 +46,27 @@ func TestParseResourceDashboard(t *testing.T) {
 	}
 }
 
+func TestParseGrafanaFieldColors(t *testing.T) {
+	parsed, err := Parse([]byte(`{
+  "title":"Colours", "panels":[{
+    "type":"timeseries", "fieldConfig": {
+      "defaults":{"color":{"mode":"fixed", "fixedColor":"#5794F2"}},
+      "overrides":[{
+        "matcher":{"id":"byName", "options":"api-2"},
+        "properties":[{"id":"color", "value":{"mode":"fixed", "fixedColor":"red"}}]
+      }]
+    }
+  }]
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := parsed.Panels[0].FieldConfig
+	if config.FixedColor != "#5794F2" || len(config.Overrides) != 1 || config.Overrides[0].FixedColor != "red" {
+		t.Fatalf("unexpected normalized field config: %+v", config)
+	}
+}
+
 func TestTimeRangeResolve(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
 	start, end, err := (TimeRange{From: "now-2h", To: "now"}).Resolve(now)
