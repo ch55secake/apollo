@@ -31,6 +31,7 @@ type panelJSON struct {
 	Targets       []json.RawMessage `json:"targets"`
 	Panels        []panelJSON       `json:"panels"`
 	Options       json.RawMessage   `json:"options"`
+	FieldConfig   json.RawMessage   `json:"fieldConfig"`
 	Content       string            `json:"content"`
 	MaxDataPoints int               `json:"maxDataPoints"`
 	Raw           json.RawMessage   `json:"-"`
@@ -177,6 +178,7 @@ func flattenPanel(raw panelJSON, row string) []Panel {
 		_ = json.Unmarshal(raw.Options, &options)
 		panel.Text = options.Content
 	}
+	panel.Legend, panel.Color, panel.ColorOverrides = parseVisualOptions(raw.Options, raw.FieldConfig)
 	for i, targetRaw := range raw.Targets {
 		var targetJSON struct {
 			RefID        string          `json:"refId"`
@@ -204,6 +206,80 @@ func flattenPanel(raw panelJSON, row string) []Panel {
 		})
 	}
 	return []Panel{panel}
+}
+
+func parseVisualOptions(optionsRaw, fieldConfigRaw json.RawMessage) (Legend, string, []ColorOverride) {
+	legend := Legend{Show: true, Placement: "bottom"}
+	var options struct {
+		Legend struct {
+			ShowLegend *bool  `json:"showLegend"`
+			Placement  string `json:"placement"`
+		} `json:"legend"`
+	}
+	if json.Unmarshal(optionsRaw, &options) == nil {
+		if options.Legend.ShowLegend != nil {
+			legend.Show = *options.Legend.ShowLegend
+			legend.ShowSet = true
+		}
+		if options.Legend.Placement != "" {
+			legend.Placement = options.Legend.Placement
+		}
+	}
+
+	var fields struct {
+		Defaults struct {
+			Color struct {
+				FixedColor string `json:"fixedColor"`
+				Mode       string `json:"mode"`
+			} `json:"color"`
+		} `json:"defaults"`
+		Overrides []struct {
+			Matcher struct {
+				ID      string `json:"id"`
+				Options string `json:"options"`
+			} `json:"matcher"`
+			Properties []struct {
+				ID    string          `json:"id"`
+				Value json.RawMessage `json:"value"`
+			} `json:"properties"`
+		} `json:"overrides"`
+	}
+	if json.Unmarshal(fieldConfigRaw, &fields) != nil {
+		return legend, "", nil
+	}
+	color := ""
+	if fields.Defaults.Color.Mode == "fixed" {
+		color = fields.Defaults.Color.FixedColor
+	}
+	overrides := make([]ColorOverride, 0)
+	for _, override := range fields.Overrides {
+		if override.Matcher.ID != "byName" || override.Matcher.Options == "" {
+			continue
+		}
+		for _, property := range override.Properties {
+			if property.ID == "color" {
+				if color := fixedColor(property.Value); color != "" {
+					overrides = append(overrides, ColorOverride{Name: override.Matcher.Options, Color: color})
+				}
+			}
+		}
+	}
+	return legend, color, overrides
+}
+
+func fixedColor(raw json.RawMessage) string {
+	var color string
+	if json.Unmarshal(raw, &color) == nil {
+		return color
+	}
+	var value struct {
+		FixedColor string `json:"fixedColor"`
+		Mode       string `json:"mode"`
+	}
+	if json.Unmarshal(raw, &value) == nil && value.Mode == "fixed" {
+		return value.FixedColor
+	}
+	return ""
 }
 
 func parseDatasource(raw json.RawMessage) DataSourceRef {

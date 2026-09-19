@@ -45,18 +45,34 @@ type GridPos struct {
 }
 
 type Panel struct {
-	ID            int
-	Title         string
-	Description   string
-	Type          string
-	GridPos       GridPos
-	Row           string
-	Datasource    DataSourceRef
-	Targets       []Target
-	Text          string
-	MaxDataPoints int
-	Options       json.RawMessage
-	Raw           json.RawMessage
+	ID             int
+	Title          string
+	Description    string
+	Type           string
+	GridPos        GridPos
+	Row            string
+	Datasource     DataSourceRef
+	Targets        []Target
+	Text           string
+	MaxDataPoints  int
+	Options        json.RawMessage
+	Legend         Legend
+	Color          string
+	ColorOverrides []ColorOverride
+	Raw            json.RawMessage
+}
+
+// Legend controls the Grafana legend settings supported by the terminal view.
+type Legend struct {
+	Show      bool
+	ShowSet   bool
+	Placement string
+}
+
+// ColorOverride maps a Grafana series name to its configured fixed color.
+type ColorOverride struct {
+	Name  string
+	Color string
 }
 
 type Target struct {

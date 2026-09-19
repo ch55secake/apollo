@@ -63,3 +63,40 @@ func TestTimeRangeRejectsInvalidOrder(t *testing.T) {
 		t.Fatal("expected invalid time range to fail")
 	}
 }
+
+func TestParsePanelLegendAndFixedColors(t *testing.T) {
+	parsed, err := Parse([]byte(`{
+        "title": "Visuals",
+        "panels": [{
+            "type": "timeseries",
+            "options": {"legend": {"showLegend": false, "placement": "right"}},
+            "fieldConfig": {
+                "defaults": {"color": {"mode": "fixed", "fixedColor": "blue"}},
+                "overrides": [{
+                    "matcher": {"id": "byName", "options": "api-1"},
+                    "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+                }]
+            }
+        }]
+    }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	panel := parsed.Panels[0]
+	if panel.Legend.Show || !panel.Legend.ShowSet || panel.Legend.Placement != "right" {
+		t.Fatalf("unexpected legend settings: %+v", panel.Legend)
+	}
+	if panel.Color != "blue" || len(panel.ColorOverrides) != 1 || panel.ColorOverrides[0] != (ColorOverride{Name: "api-1", Color: "red"}) {
+		t.Fatalf("unexpected color settings: %+v %+v", panel.Color, panel.ColorOverrides)
+	}
+}
+
+func TestParsePanelStringColorOverride(t *testing.T) {
+	parsed, err := Parse([]byte(`{"title":"Visuals","panels":[{"fieldConfig":{"overrides":[{"matcher":{"id":"byName","options":"api-1"},"properties":[{"id":"color","value":"semi-dark-green"}]}]}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Panels[0].ColorOverrides; len(got) != 1 || got[0].Color != "semi-dark-green" {
+		t.Fatalf("unexpected string color override: %+v", got)
+	}
+}
