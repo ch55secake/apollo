@@ -421,6 +421,53 @@ func TestStatPanelRendersReducedValue(t *testing.T) {
 	}
 }
 
+func TestTablePanelRendersLatestSamplesWithLabelColumns(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{Series: []prometheus.Series{
+		{Labels: map[string]string{"job": "api", "instance": "api-1"}, Samples: []prometheus.Sample{{Timestamp: time.Now().Add(-time.Minute), Value: 1}, {Timestamp: time.Now(), Value: 2}}},
+		{Labels: map[string]string{"job": "worker", "instance": "worker-1"}, Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 3}}},
+	}}
+	panel := dashboard.Panel{Type: "table", Targets: []dashboard.Target{{Expr: "up"}}}
+	rendered := renderPanel(m, 0, panel, 70, 10)
+	for _, value := range []string{"instance", "job", "Value", "api-1", "worker-1", "2", "3"} {
+		if !strings.Contains(rendered, value) {
+			t.Fatalf("expected table to include %q: %q", value, rendered)
+		}
+	}
+	if strings.Contains(rendered, "api-1 | api | 1") {
+		t.Fatalf("expected table to use the latest sample: %q", rendered)
+	}
+}
+
+func TestTablePanelCombinesPrometheusTargetsAndFitsWidth(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{Series: []prometheus.Series{{
+		Labels:  map[string]string{"instance": "api-1"},
+		Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 1}},
+	}}}
+	m.queryResults[queryKey(0, 1)] = prometheus.Result{Series: []prometheus.Series{{
+		Labels:  map[string]string{"instance": "worker-1"},
+		Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 2}},
+	}}}
+	panel := dashboard.Panel{Type: "table", Targets: []dashboard.Target{{Expr: "up"}, {Expr: "up"}}}
+	rendered := renderPanelTable(m, 0, panel, 20, 6)
+	for _, value := range []string{"api-1", "worker-1"} {
+		if !strings.Contains(rendered, value) {
+			t.Fatalf("expected combined table row %q: %q", value, rendered)
+		}
+	}
+	assertViewWidth(t, rendered, 20)
+}
+
+func TestTablePanelShowsNoData(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{ResultType: "vector"}
+	panel := dashboard.Panel{Type: "table", Targets: []dashboard.Target{{Expr: "up"}}}
+	if rendered := renderPanelTable(m, 0, panel, 40, 8); !strings.Contains(rendered, "No data") {
+		t.Fatalf("expected no-data state, got %q", rendered)
+	}
+}
+
 func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})
