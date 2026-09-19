@@ -645,6 +645,8 @@ func renderPanel(m Model, index int, panel dashboard.Panel, width, height int) s
 	}
 	if isChartPanel(panel.Type) && len(panel.Targets) > 0 {
 		content = renderPanelChart(m, index, panel, innerWidth, innerHeight)
+	} else if isTablePanel(panel.Type) && len(panel.Targets) > 0 {
+		content = renderPanelTable(m, index, panel, innerWidth, innerHeight)
 	} else if len(panel.Targets) > 0 {
 		target := panel.Targets[0]
 		if reason := targetSkipReason(target); reason != "" {
@@ -719,6 +721,123 @@ func renderPanelChart(m Model, panelIndex int, panel dashboard.Panel, width, hei
 		return apolloTheme.Warning.Render("Loading query...")
 	}
 	return apolloTheme.Muted.Render("No data")
+}
+
+func renderPanelTable(m Model, panelIndex int, panel dashboard.Panel, width, height int) string {
+	series := make([]prometheus.Series, 0)
+	var firstErr error
+	loading := false
+	for targetIndex, target := range panel.Targets {
+		if targetSkipReason(target) != "" {
+			continue
+		}
+		result, ok := m.queryResults[queryKey(panelIndex, targetIndex)]
+		if !ok {
+			if err := m.queryErrors[queryKey(panelIndex, targetIndex)]; err != nil && firstErr == nil {
+				firstErr = err
+			} else if err == nil {
+				loading = true
+			}
+			continue
+		}
+		series = append(series, result.Series...)
+	}
+	if len(series) > 0 {
+		return renderTable(series, width, height)
+	}
+	if firstErr != nil {
+		return apolloTheme.Error.Render(firstErr.Error())
+	}
+	if loading {
+		return apolloTheme.Warning.Render("Loading query...")
+	}
+	return apolloTheme.Muted.Render("No data")
+}
+
+func renderTable(series []prometheus.Series, width, height int) string {
+	width = max(1, width)
+	if width < 8 || height < 2 {
+		return renderSeriesSummary(series, width)
+	}
+
+	labelSet := make(map[string]struct{})
+	for _, item := range series {
+		for label := range item.Labels {
+			labelSet[label] = struct{}{}
+		}
+	}
+	labels := make([]string, 0, len(labelSet))
+	for label := range labelSet {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+
+	headers := append(append([]string(nil), labels...), "Value")
+	rows := make([][]string, 0, len(series))
+	for _, item := range series {
+		if len(item.Samples) == 0 {
+			continue
+		}
+		row := make([]string, 0, len(headers))
+		for _, label := range labels {
+			row = append(row, item.Labels[label])
+		}
+		row = append(row, fmt.Sprintf("%.4g", item.Samples[len(item.Samples)-1].Value))
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return "No samples"
+	}
+
+	// Keep the value column visible and omit rightmost labels when a panel is narrow.
+	for len(headers) > 1 && len(headers)*5+(len(headers)-1)*3 > width {
+		headers = append(headers[:len(headers)-2], headers[len(headers)-1])
+		for index := range rows {
+			rows[index] = append(rows[index][:len(rows[index])-2], rows[index][len(rows[index])-1])
+		}
+	}
+	columnWidths := make([]int, len(headers))
+	for index, header := range headers {
+		columnWidths[index] = lipgloss.Width(header)
+		for _, row := range rows {
+			columnWidths[index] = max(columnWidths[index], lipgloss.Width(row[index]))
+		}
+		columnWidths[index] = min(columnWidths[index], 24)
+	}
+	for totalTableWidth(columnWidths) > width {
+		widest := 0
+		for index := range columnWidths {
+			if columnWidths[index] > columnWidths[widest] {
+				widest = index
+			}
+		}
+		if columnWidths[widest] <= 3 {
+			break
+		}
+		columnWidths[widest]--
+	}
+
+	lines := []string{renderTableRow(headers, columnWidths, apolloTheme.Section)}
+	for _, row := range rows[:min(len(rows), max(1, height-1))] {
+		lines = append(lines, renderTableRow(row, columnWidths, apolloTheme.Muted))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func totalTableWidth(widths []int) int {
+	total := len(widths) - 1
+	for _, width := range widths {
+		total += width + 2
+	}
+	return total
+}
+
+func renderTableRow(values []string, widths []int, style lipgloss.Style) string {
+	columns := make([]string, len(values))
+	for index, value := range values {
+		columns[index] = style.Render(truncate(value, widths[index]))
+	}
+	return strings.Join(columns, " | ")
 }
 
 func targetSkipReason(target dashboard.Target) string {
@@ -1026,6 +1145,10 @@ func isStatPanel(panelType string) bool {
 	default:
 		return false
 	}
+}
+
+func isTablePanel(panelType string) bool {
+	return strings.EqualFold(panelType, "table")
 }
 
 func panelHeight(gridHeight int) int {
