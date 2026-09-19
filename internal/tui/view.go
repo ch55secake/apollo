@@ -653,11 +653,19 @@ func renderPanelChart(m Model, panelIndex int, panel dashboard.Panel, width, hei
 			if name == "" {
 				name = fmt.Sprintf("series-%d", len(series)+1)
 			}
-			series = append(series, namedSeries{name: name, series: item})
+			series = append(series, namedSeries{name: name, series: item, color: panelSeriesColor(panel, name)})
 		}
 	}
 	if len(series) > 0 {
-		return renderNamedChart(series, width, height)
+		showLegend := !panel.Legend.ShowSet || panel.Legend.Show
+		if showLegend && strings.EqualFold(panel.Legend.Placement, "right") && width >= 40 {
+			legendWidth := min(24, max(16, width/3))
+			chartWidth := max(8, width-legendWidth-2)
+			chart := renderNamedChartWithLegend(series, chartWidth, height, false)
+			legend := renderChartLegendVertical(series, legendWidth, height)
+			return lipgloss.JoinHorizontal(lipgloss.Top, chart, "  ", legend)
+		}
+		return renderNamedChartWithLegend(series, width, height, showLegend)
 	}
 	if firstErr != nil {
 		return apolloTheme.Error.Render(firstErr.Error())
@@ -723,13 +731,21 @@ func renderChartWithLegend(series []prometheus.Series, width, height int, legend
 type namedSeries struct {
 	name   string
 	series prometheus.Series
+	color  string
 }
 
 func renderNamedChart(series []namedSeries, width, height int) string {
+	return renderNamedChartWithLegend(series, width, height, true)
+}
+
+func renderNamedChartWithLegend(series []namedSeries, width, height int, showLegend bool) string {
 	if width < 8 || height < 3 {
 		return renderNamedSeriesSummary(series, width)
 	}
-	legend := renderChartLegend(series, width)
+	legend := ""
+	if showLegend {
+		legend = renderChartLegend(series, width)
+	}
 	chartHeight := height
 	if legend != "" && height >= 7 {
 		chartHeight -= lipgloss.Height(legend) + 1
@@ -746,7 +762,7 @@ func renderNamedChart(series []namedSeries, width, height int) string {
 		// Dataset keys must be unique even when a Grafana legend template makes
 		// two series render to the same label.
 		dataset := fmt.Sprintf("%d:%s", index, item.name)
-		chart.SetDataSetStyle(dataset, lipgloss.NewStyle().Foreground(graphPalette[index%len(graphPalette)]))
+		chart.SetDataSetStyle(dataset, lipgloss.NewStyle().Foreground(seriesColor(item, index)))
 		for _, sample := range item.series.Samples {
 			if math.IsNaN(sample.Value) || math.IsInf(sample.Value, 0) {
 				continue
@@ -771,10 +787,63 @@ func renderChartLegend(series []namedSeries, width int) string {
 		if len(item.series.Samples) > 0 {
 			last = fmt.Sprintf("%.4g", item.series.Samples[len(item.series.Samples)-1].Value)
 		}
-		entry := lipgloss.NewStyle().Foreground(graphPalette[index%len(graphPalette)]).Render("● ") + item.name + " " + apolloTheme.Muted.Render(last)
+		color := seriesColor(item, index)
+		entry := lipgloss.NewStyle().Foreground(color).Render("● "+item.name) + " " + apolloTheme.Muted.Render(last)
 		entries = append(entries, entry)
 	}
 	return wrapLegend(entries, width)
+}
+
+func renderChartLegendVertical(series []namedSeries, width, height int) string {
+	entries := make([]string, 0, len(series))
+	for index, item := range series {
+		last := "-"
+		if len(item.series.Samples) > 0 {
+			last = fmt.Sprintf("%.4g", item.series.Samples[len(item.series.Samples)-1].Value)
+		}
+		valueWidth := lipgloss.Width(last)
+		nameWidth := max(1, width-valueWidth-2)
+		name := truncate(item.name, nameWidth)
+		entry := lipgloss.NewStyle().Foreground(seriesColor(item, index)).Render("● "+name) + " " + apolloTheme.Muted.Render(last)
+		entries = append(entries, truncate(entry, width))
+	}
+	return strings.Join(entries[:min(len(entries), max(1, height))], "\n")
+}
+
+func panelSeriesColor(panel dashboard.Panel, name string) string {
+	for _, override := range panel.ColorOverrides {
+		if override.Name == name {
+			return override.Color
+		}
+	}
+	return panel.Color
+}
+
+func seriesColor(series namedSeries, index int) lipgloss.Color {
+	if series.color != "" {
+		return lipgloss.Color(grafanaColor(series.color))
+	}
+	return graphPalette[index%len(graphPalette)]
+}
+
+func grafanaColor(color string) string {
+	if strings.HasPrefix(color, "#") {
+		return color
+	}
+	colors := map[string]string{
+		"red": "#F2495C", "semi-dark-red": "#E02F44", "dark-red": "#AD0317",
+		"orange": "#FF9830", "semi-dark-orange": "#E0752D", "dark-orange": "#C15C17",
+		"yellow": "#FADE2A", "semi-dark-yellow": "#E0B400", "dark-yellow": "#B87700",
+		"green": "#73BF69", "semi-dark-green": "#56A64B", "dark-green": "#37872D",
+		"blue": "#5794F2", "semi-dark-blue": "#3274D9", "dark-blue": "#1F60C4",
+		"purple": "#B877D9", "semi-dark-purple": "#A352CC", "dark-purple": "#7C2AA4",
+		"pink": "#FF7383", "semi-dark-pink": "#E85B9F", "dark-pink": "#CC3D8C",
+		"gray": "#8F9BA8", "semi-dark-gray": "#6E7781", "dark-gray": "#46505A",
+	}
+	if resolved, ok := colors[strings.ToLower(color)]; ok {
+		return resolved
+	}
+	return color
 }
 
 func renderNamedSeriesSummary(series []namedSeries, width int) string {

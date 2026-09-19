@@ -338,6 +338,45 @@ func TestPanelChartCombinesEveryPrometheusTarget(t *testing.T) {
 	}
 }
 
+func TestPanelChartHidesGrafanaConfiguredLegend(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{Series: []prometheus.Series{{
+		Labels:  map[string]string{"instance": "api-1"},
+		Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 1}},
+	}}}
+	panel := dashboard.Panel{
+		Type:    "timeseries",
+		Legend:  dashboard.Legend{Show: false, ShowSet: true},
+		Targets: []dashboard.Target{{Expr: "up", LegendFormat: "{{instance}}"}},
+	}
+	if rendered := renderPanelChart(m, 0, panel, 64, 12); strings.Contains(rendered, "api-1") {
+		t.Fatalf("expected legend to be hidden, got %q", rendered)
+	}
+}
+
+func TestPanelSeriesColorUsesGrafanaOverride(t *testing.T) {
+	panel := dashboard.Panel{Color: "blue", ColorOverrides: []dashboard.ColorOverride{{Name: "api-1", Color: "red"}}}
+	if got := panelSeriesColor(panel, "api-1"); got != "red" {
+		t.Fatalf("expected override color, got %q", got)
+	}
+	if got := panelSeriesColor(panel, "worker-1"); got != "blue" {
+		t.Fatalf("expected default color, got %q", got)
+	}
+}
+
+func TestPanelChartUsesGrafanaRightLegend(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{Series: []prometheus.Series{{
+		Labels:  map[string]string{"instance": "api-1"},
+		Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 1}},
+	}}}
+	panel := dashboard.Panel{
+		Type: "timeseries", Legend: dashboard.Legend{Show: true, ShowSet: true, Placement: "right"},
+		Targets: []dashboard.Target{{Expr: "up", LegendFormat: "{{instance}}"}},
+	}
+	assertViewWidth(t, renderPanelChart(m, 0, panel, 64, 12), 64)
+}
+
 func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})
