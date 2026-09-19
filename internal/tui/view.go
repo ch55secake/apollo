@@ -602,7 +602,9 @@ func renderPanel(m Model, index int, panel dashboard.Panel, width, height int) s
 	if panel.Text != "" {
 		content = panel.Text
 	}
-	if len(panel.Targets) > 0 {
+	if isChartPanel(panel.Type) && len(panel.Targets) > 0 {
+		content = renderPanelChart(m, index, panel, innerWidth, innerHeight)
+	} else if len(panel.Targets) > 0 {
 		target := panel.Targets[0]
 		if reason := targetSkipReason(target); reason != "" {
 			content = apolloTheme.Warning.Render(reason)
@@ -627,6 +629,43 @@ func renderPanel(m Model, index int, panel dashboard.Panel, width, height int) s
 		heading = lipgloss.JoinHorizontal(lipgloss.Center, heading, " ", apolloTheme.Muted.Render(fmt.Sprintf("+%d targets", len(panel.Targets)-1)))
 	}
 	return style.Width(max(1, width-2)).Height(max(3, height-2)).Render(heading + "\n" + content)
+}
+
+func renderPanelChart(m Model, panelIndex int, panel dashboard.Panel, width, height int) string {
+	series := make([]namedSeries, 0)
+	var firstErr error
+	loading := false
+	for targetIndex, target := range panel.Targets {
+		if targetSkipReason(target) != "" {
+			continue
+		}
+		result, ok := m.queryResults[queryKey(panelIndex, targetIndex)]
+		if !ok {
+			if err := m.queryErrors[queryKey(panelIndex, targetIndex)]; err != nil && firstErr == nil {
+				firstErr = err
+			} else if err == nil {
+				loading = true
+			}
+			continue
+		}
+		for _, item := range result.Series {
+			name := seriesDisplayName(item.Labels, target.LegendFormat)
+			if name == "" {
+				name = fmt.Sprintf("series-%d", len(series)+1)
+			}
+			series = append(series, namedSeries{name: name, series: item})
+		}
+	}
+	if len(series) > 0 {
+		return renderNamedChart(series, width, height)
+	}
+	if firstErr != nil {
+		return apolloTheme.Error.Render(firstErr.Error())
+	}
+	if loading {
+		return apolloTheme.Warning.Render("Loading query...")
+	}
+	return apolloTheme.Muted.Render("No data")
 }
 
 func targetSkipReason(target dashboard.Target) string {
@@ -670,16 +709,33 @@ var graphPalette = []lipgloss.Color{
 var legendToken = regexp.MustCompile(`{{\s*([^{}\s]+)\s*}}`)
 
 func renderChartWithLegend(series []prometheus.Series, width, height int, legendFormat string) string {
-	if width < 8 || height < 3 {
-		return renderSeriesSummary(series, width)
+	named := make([]namedSeries, 0, len(series))
+	for index, item := range series {
+		name := seriesDisplayName(item.Labels, legendFormat)
+		if name == "" {
+			name = fmt.Sprintf("series-%d", index+1)
+		}
+		named = append(named, namedSeries{name: name, series: item})
 	}
-	legend := renderChartLegend(series, width, legendFormat)
+	return renderNamedChart(named, width, height)
+}
+
+type namedSeries struct {
+	name   string
+	series prometheus.Series
+}
+
+func renderNamedChart(series []namedSeries, width, height int) string {
+	if width < 8 || height < 3 {
+		return renderNamedSeriesSummary(series, width)
+	}
+	legend := renderChartLegend(series, width)
 	chartHeight := height
 	if legend != "" && height >= 7 {
 		chartHeight -= lipgloss.Height(legend) + 1
 	}
 	if chartHeight < 3 {
-		return renderSeriesSummary(series, width)
+		return renderNamedSeriesSummary(series, width)
 	}
 	options := make([]timeserieslinechart.Option, 0, 1)
 	if width < 24 || chartHeight < 6 {
@@ -687,15 +743,11 @@ func renderChartWithLegend(series []prometheus.Series, width, height int, legend
 	}
 	chart := timeserieslinechart.New(width, chartHeight, options...)
 	for index, item := range series {
-		name := seriesDisplayName(item.Labels, legendFormat)
-		if name == "" {
-			name = fmt.Sprintf("series-%d", index+1)
-		}
 		// Dataset keys must be unique even when a Grafana legend template makes
 		// two series render to the same label.
-		dataset := fmt.Sprintf("%d:%s", index, name)
+		dataset := fmt.Sprintf("%d:%s", index, item.name)
 		chart.SetDataSetStyle(dataset, lipgloss.NewStyle().Foreground(graphPalette[index%len(graphPalette)]))
-		for _, sample := range item.Samples {
+		for _, sample := range item.series.Samples {
 			if math.IsNaN(sample.Value) || math.IsInf(sample.Value, 0) {
 				continue
 			}
@@ -709,24 +761,41 @@ func renderChartWithLegend(series []prometheus.Series, width, height int, legend
 	return chart.View() + "\n" + legend
 }
 
-func renderChartLegend(series []prometheus.Series, width int, legendFormat string) string {
+func renderChartLegend(series []namedSeries, width int) string {
 	if len(series) == 0 || width < 20 {
 		return ""
 	}
 	entries := make([]string, 0, len(series))
 	for index, item := range series {
-		name := seriesDisplayName(item.Labels, legendFormat)
-		if name == "" {
-			name = fmt.Sprintf("series-%d", index+1)
-		}
 		last := "-"
-		if len(item.Samples) > 0 {
-			last = fmt.Sprintf("%.4g", item.Samples[len(item.Samples)-1].Value)
+		if len(item.series.Samples) > 0 {
+			last = fmt.Sprintf("%.4g", item.series.Samples[len(item.series.Samples)-1].Value)
 		}
-		entry := lipgloss.NewStyle().Foreground(graphPalette[index%len(graphPalette)]).Render("● ") + name + " " + apolloTheme.Muted.Render(last)
+		entry := lipgloss.NewStyle().Foreground(graphPalette[index%len(graphPalette)]).Render("● ") + item.name + " " + apolloTheme.Muted.Render(last)
 		entries = append(entries, entry)
 	}
 	return wrapLegend(entries, width)
+}
+
+func renderNamedSeriesSummary(series []namedSeries, width int) string {
+	width = max(1, width)
+	lines := make([]string, 0, len(series))
+	for _, item := range series {
+		if len(item.series.Samples) == 0 {
+			continue
+		}
+		value := fmt.Sprintf("%.4g", item.series.Samples[len(item.series.Samples)-1].Value)
+		if width <= lipgloss.Width(value) {
+			lines = append(lines, truncate(value, width))
+			continue
+		}
+		line := truncate(item.name, max(1, width-lipgloss.Width(value)-1)) + " " + value
+		lines = append(lines, truncate(line, width))
+	}
+	if len(lines) == 0 {
+		return "No samples"
+	}
+	return strings.Join(lines, "\n")
 }
 
 func wrapLegend(entries []string, width int) string {
