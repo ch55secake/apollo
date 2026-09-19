@@ -59,7 +59,15 @@ type Panel struct {
 	Legend         Legend
 	Color          string
 	ColorOverrides []ColorOverride
+	Unit           string
+	Thresholds     []Threshold
 	Raw            json.RawMessage
+}
+
+// Renderer threshold step used to colour reduced values in stat panels.
+type Threshold struct {
+	Color string
+	Value *float64
 }
 
 // Legend controls the Grafana legend settings supported by the terminal view.

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
 	"github.com/ch55secake/apollo/internal/dashboard"
@@ -657,7 +658,7 @@ func renderPanel(m Model, index int, panel dashboard.Panel, width, height int) s
 				content = apolloTheme.Error.Render(err.Error())
 			} else if result, ok := m.queryResults[key]; ok {
 				if isStatPanel(panel.Type) {
-					content = renderStatResult(result, innerWidth, innerHeight, target.LegendFormat)
+					content = renderStatResult(result, innerWidth, innerHeight, target.LegendFormat, panel)
 				} else {
 					content = renderResult(result, innerWidth, innerHeight, isChartPanel(panel.Type), target.LegendFormat)
 				}
@@ -867,28 +868,93 @@ func renderResult(result prometheus.Result, width, height int, chart bool, legen
 	return body
 }
 
-func renderStatResult(result prometheus.Result, width, height int, legendFormat string) string {
+func renderStatResult(result prometheus.Result, width, height int, legendFormat string, panel dashboard.Panel) string {
 	if result.Scalar != nil {
-		return renderStatValue("", result.Scalar.Value, width, height)
+		return renderStatValue("", result.Scalar.Value, width, height, panel)
 	}
 	if len(result.Series) == 0 {
 		return "No data"
 	}
 	if len(result.Series) == 1 && len(result.Series[0].Samples) > 0 {
 		series := result.Series[0]
-		return renderStatValue(seriesDisplayName(series.Labels, legendFormat), series.Samples[len(series.Samples)-1].Value, width, height)
+		return renderStatValue(seriesDisplayName(series.Labels, legendFormat), series.Samples[len(series.Samples)-1].Value, width, height, panel)
 	}
 	return renderSeriesSummary(result.Series, width)
 }
 
-func renderStatValue(label string, value float64, width, height int) string {
-	valueText := apolloTheme.Brand.Render(fmt.Sprintf("%.4g", value))
+func renderStatValue(label string, value float64, width, height int, panel dashboard.Panel) string {
+	valueText := statValueStyle(value, panel).Render(formatStatValue(value, panel.Unit))
 	rows := []string{valueText}
 	if label != "" {
 		rows = append(rows, apolloTheme.Muted.Render(truncate(label, width)))
 	}
 	content := lipgloss.JoinVertical(lipgloss.Center, rows...)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func statValueStyle(value float64, panel dashboard.Panel) lipgloss.Style {
+	if panel.Color != "" {
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(grafanaColor(panel.Color)))
+	}
+	if color := thresholdColor(value, panel.Thresholds); color != "" {
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(grafanaColor(color)))
+	}
+	return apolloTheme.Brand
+}
+
+// thresholdColor returns the last threshold step whose bound the value meets
+// or exceeds, matching Grafana's absolute threshold interpretation.
+func thresholdColor(value float64, thresholds []dashboard.Threshold) string {
+	color := ""
+	for _, threshold := range thresholds {
+		if threshold.Value == nil || value >= *threshold.Value {
+			color = threshold.Color
+		}
+	}
+	return color
+}
+
+func formatStatValue(value float64, unit string) string {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "percent":
+		return fmt.Sprintf("%.4g%%", value)
+	case "percentunit":
+		return fmt.Sprintf("%.4g%%", value*100)
+	case "bytes":
+		return formatSI(value, "B")
+	case "bits", "bps":
+		return formatSI(value, "b")
+	case "s", "seconds":
+		return formatDuration(value)
+	case "ms", "milliseconds":
+		return fmt.Sprintf("%.4gms", value)
+	default:
+		return fmt.Sprintf("%.4g", value)
+	}
+}
+
+func formatSI(value float64, suffix string) string {
+	negative := value < 0
+	magnitude := math.Abs(value)
+	units := []string{"", "k", "M", "G", "T"}
+	unit := 0
+	for magnitude >= 1000 && unit < len(units)-1 {
+		magnitude /= 1000
+		unit++
+	}
+	text := fmt.Sprintf("%.4g%s%s", magnitude, units[unit], suffix)
+	if negative {
+		return "-" + text
+	}
+	return text
+}
+
+func formatDuration(seconds float64) string {
+	duration := time.Duration(seconds * float64(time.Second)).Truncate(time.Millisecond)
+	if duration < time.Second && duration > 0 {
+		return fmt.Sprintf("%.4gs", seconds)
+	}
+	return duration.String()
 }
 
 func renderChart(series []prometheus.Series, width, height int) string {
