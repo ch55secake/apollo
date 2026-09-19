@@ -316,6 +316,28 @@ func TestRenderChartIncludesSeriesLegendWhenSpaceAllows(t *testing.T) {
 	assertViewWidth(t, rendered, 48)
 }
 
+func TestPanelChartCombinesEveryPrometheusTarget(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{Series: []prometheus.Series{{
+		Labels:  map[string]string{"instance": "api-1"},
+		Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 1}},
+	}}}
+	m.queryResults[queryKey(0, 1)] = prometheus.Result{Series: []prometheus.Series{{
+		Labels:  map[string]string{"instance": "worker-1"},
+		Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 2}},
+	}}}
+	panel := dashboard.Panel{Type: "timeseries", Targets: []dashboard.Target{
+		{Expr: "up", LegendFormat: "api {{instance}}"},
+		{Expr: "up", LegendFormat: "worker {{instance}}"},
+	}}
+	rendered := renderPanelChart(m, 0, panel, 64, 12)
+	for _, name := range []string{"api api-1", "worker worker-1"} {
+		if !strings.Contains(rendered, name) {
+			t.Fatalf("expected combined target legend %q in %q", name, rendered)
+		}
+	}
+}
+
 func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})
