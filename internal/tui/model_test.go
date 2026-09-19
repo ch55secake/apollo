@@ -391,6 +391,21 @@ func TestVariableSelectionRefreshesDashboardQueries(t *testing.T) {
 	}
 }
 
+func TestTimeRangeSelectionRefreshesDashboardQueries(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.screen = dashboardDetailScreen
+	m.dashboard = &dashboard.Dashboard{Time: dashboard.TimeRange{From: "now-6h", To: "now"}}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	if m.screen != timeRangeScreen {
+		t.Fatalf("expected time range screen, got %d", m.screen)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m, cmd := updateWithCmd(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || m.screen != dashboardDetailScreen || m.dashboard.Time.From != "now-12h" {
+		t.Fatalf("expected updated range and refresh, range=%+v screen=%d", m.dashboard.Time, m.screen)
+	}
+}
+
 func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})

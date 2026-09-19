@@ -31,6 +31,7 @@ const (
 	dashboardListScreen
 	dashboardDetailScreen
 	variableScreen
+	timeRangeScreen
 	queryScreen
 	connectionScreen
 	helpScreen
@@ -83,13 +84,14 @@ type Model struct {
 	loadMode           bool
 	catalogSelectionID string
 
-	selectedSummary  dashboard.DashboardSummary
-	dashboard        *dashboard.Dashboard
-	detailLoading    bool
-	detailError      error
-	selectedPanel    int
-	selectedTarget   int
-	selectedVariable int
+	selectedSummary   dashboard.DashboardSummary
+	dashboard         *dashboard.Dashboard
+	detailLoading     bool
+	detailError       error
+	selectedPanel     int
+	selectedTarget    int
+	selectedVariable  int
+	selectedTimeRange int
 
 	healthLoading    bool
 	healthChecked    bool
@@ -288,6 +290,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateDashboard(msg)
 	case variableScreen:
 		return m.updateVariables(msg)
+	case timeRangeScreen:
+		return m.updateTimeRange(msg)
 	case queryScreen:
 		return m.updateQuery(msg)
 	case connectionScreen:
@@ -531,11 +535,50 @@ func (m Model) updateDashboard(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedVariable = min(m.selectedVariable, len(m.dashboard.Variables)-1)
 				m.screen = variableScreen
 			}
+		case "t":
+			if m.dashboard != nil {
+				m.selectedTimeRange = timeRangeIndex(m.dashboard.Time.From)
+				m.screen = timeRangeScreen
+			}
 		}
 	}
 	var cmd tea.Cmd
 	m.dashboardScroll, cmd = m.dashboardScroll.Update(msg)
 	return m, cmd
+}
+
+var timeRangePresets = []string{"now-1h", "now-6h", "now-12h", "now-24h", "now-7d", "now-30d"}
+
+func timeRangeIndex(value string) int {
+	for index, preset := range timeRangePresets {
+		if preset == value {
+			return index
+		}
+	}
+	return 1
+}
+
+func (m Model) updateTimeRange(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "esc", "backspace", "t":
+			m.screen = dashboardDetailScreen
+		case "up", "k":
+			m.selectedTimeRange = max(0, m.selectedTimeRange-1)
+		case "down", "j":
+			m.selectedTimeRange = min(len(timeRangePresets)-1, m.selectedTimeRange+1)
+		case "enter":
+			if m.dashboard != nil {
+				m.dashboard.Time.From = timeRangePresets[m.selectedTimeRange]
+				m.dashboard.Time.To = "now"
+				m.screen = dashboardDetailScreen
+				return m, m.startQueryRefresh(true)
+			}
+		}
+	}
+	return m, nil
 }
 
 func (m Model) updateQuery(msg tea.Msg) (tea.Model, tea.Cmd) {
