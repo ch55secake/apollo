@@ -55,6 +55,10 @@ type variableJSON struct {
 		Text  json.RawMessage `json:"text"`
 		Value json.RawMessage `json:"value"`
 	} `json:"current"`
+	Options []struct {
+		Text  json.RawMessage `json:"text"`
+		Value json.RawMessage `json:"value"`
+	} `json:"options"`
 }
 
 func (p *panelJSON) UnmarshalJSON(data []byte) error {
@@ -118,12 +122,34 @@ func Parse(data []byte) (Dashboard, error) {
 		if current == "" {
 			current = variableCurrentValue(variable.Current.Text)
 		}
+		values := make([]string, 0, len(variable.Options))
+		for _, option := range variable.Options {
+			value := variableCurrentValue(option.Value)
+			if value == "" {
+				value = variableCurrentValue(option.Text)
+			}
+			if value != "" && !contains(values, value) {
+				values = append(values, value)
+			}
+		}
+		if current != "" && !contains(values, current) {
+			values = append(values, current)
+		}
 		dashboard.Variables = append(dashboard.Variables, Variable{
 			Name: variable.Name, Label: variable.Label, Type: variable.Type,
-			Query: variable.Query, Current: current,
+			Query: variable.Query, Current: current, Values: values,
 		})
 	}
 	return dashboard, nil
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func variableCurrentValue(raw json.RawMessage) string {

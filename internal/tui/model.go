@@ -30,6 +30,7 @@ const (
 	mainMenuScreen screen = iota
 	dashboardListScreen
 	dashboardDetailScreen
+	variableScreen
 	queryScreen
 	connectionScreen
 	helpScreen
@@ -82,12 +83,13 @@ type Model struct {
 	loadMode           bool
 	catalogSelectionID string
 
-	selectedSummary dashboard.DashboardSummary
-	dashboard       *dashboard.Dashboard
-	detailLoading   bool
-	detailError     error
-	selectedPanel   int
-	selectedTarget  int
+	selectedSummary  dashboard.DashboardSummary
+	dashboard        *dashboard.Dashboard
+	detailLoading    bool
+	detailError      error
+	selectedPanel    int
+	selectedTarget   int
+	selectedVariable int
 
 	healthLoading    bool
 	healthChecked    bool
@@ -284,6 +286,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateList(msg)
 	case dashboardDetailScreen:
 		return m.updateDashboard(msg)
+	case variableScreen:
+		return m.updateVariables(msg)
 	case queryScreen:
 		return m.updateQuery(msg)
 	case connectionScreen:
@@ -442,6 +446,48 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m Model) updateVariables(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		case "esc", "backspace", "v":
+			m.screen = dashboardDetailScreen
+		case "up", "k":
+			m.selectedVariable = max(0, m.selectedVariable-1)
+		case "down", "j":
+			if m.dashboard != nil {
+				m.selectedVariable = min(len(m.dashboard.Variables)-1, m.selectedVariable+1)
+			}
+		case "left", "h", "right", "l":
+			if m.dashboard == nil || m.selectedVariable < 0 || m.selectedVariable >= len(m.dashboard.Variables) {
+				return m, nil
+			}
+			variable := &m.dashboard.Variables[m.selectedVariable]
+			if len(variable.Values) < 2 {
+				return m, nil
+			}
+			index := 0
+			for i, value := range variable.Values {
+				if value == variable.Current {
+					index = i
+					break
+				}
+			}
+			if key.String() == "left" || key.String() == "h" {
+				index = (index + len(variable.Values) - 1) % len(variable.Values)
+			} else {
+				index = (index + 1) % len(variable.Values)
+			}
+			variable.Current = variable.Values[index]
+			return m, m.startQueryRefresh(true)
+		case "r":
+			return m, m.startQueryRefresh(false)
+		}
+	}
+	return m, nil
+}
+
 func (m Model) updateDashboard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
@@ -479,6 +525,11 @@ func (m Model) updateDashboard(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detailLoading = true
 				m.detailError = nil
 				return m, m.loadDashboardCmd()
+			}
+		case "v":
+			if m.dashboard != nil && len(m.dashboard.Variables) > 0 {
+				m.selectedVariable = min(m.selectedVariable, len(m.dashboard.Variables)-1)
+				m.screen = variableScreen
 			}
 		}
 	}

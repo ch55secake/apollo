@@ -377,6 +377,20 @@ func TestPanelChartUsesGrafanaRightLegend(t *testing.T) {
 	assertViewWidth(t, renderPanelChart(m, 0, panel, 64, 12), 64)
 }
 
+func TestVariableSelectionRefreshesDashboardQueries(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.screen = dashboardDetailScreen
+	m.dashboard = &dashboard.Dashboard{Variables: []dashboard.Variable{{Name: "job", Current: "api", Values: []string{"api", "worker"}}}}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	if m.screen != variableScreen {
+		t.Fatalf("expected variable screen, got %d", m.screen)
+	}
+	m, cmd := updateWithCmd(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	if cmd == nil || m.dashboard.Variables[0].Current != "worker" {
+		t.Fatalf("expected selected variable to change and refresh, current=%q", m.dashboard.Variables[0].Current)
+	}
+}
+
 func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})

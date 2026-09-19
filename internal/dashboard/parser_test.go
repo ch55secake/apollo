@@ -100,3 +100,14 @@ func TestParsePanelStringColorOverride(t *testing.T) {
 		t.Fatalf("unexpected string color override: %+v", got)
 	}
 }
+
+func TestParseVariableOptions(t *testing.T) {
+	parsed, err := Parse([]byte(`{"title":"Variables","templating":{"list":[{"name":"job","type":"custom","current":{"value":"api"},"options":[{"text":"API","value":"api"},{"text":"Worker","value":"worker"}]}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	variable := parsed.Variables[0]
+	if len(variable.Values) != 2 || variable.Values[0] != "api" || variable.Values[1] != "worker" {
+		t.Fatalf("unexpected variable options: %+v", variable)
+	}
+}
