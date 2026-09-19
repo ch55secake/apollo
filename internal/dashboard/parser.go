@@ -204,7 +204,7 @@ func flattenPanel(raw panelJSON, row string) []Panel {
 		_ = json.Unmarshal(raw.Options, &options)
 		panel.Text = options.Content
 	}
-	panel.Legend, panel.Color, panel.ColorOverrides = parseVisualOptions(raw.Options, raw.FieldConfig)
+	panel.Legend, panel.Color, panel.ColorOverrides, panel.Unit, panel.Thresholds = parseVisualOptions(raw.Options, raw.FieldConfig)
 	for i, targetRaw := range raw.Targets {
 		var targetJSON struct {
 			RefID        string          `json:"refId"`
@@ -234,7 +234,7 @@ func flattenPanel(raw panelJSON, row string) []Panel {
 	return []Panel{panel}
 }
 
-func parseVisualOptions(optionsRaw, fieldConfigRaw json.RawMessage) (Legend, string, []ColorOverride) {
+func parseVisualOptions(optionsRaw, fieldConfigRaw json.RawMessage) (Legend, string, []ColorOverride, string, []Threshold) {
 	legend := Legend{Show: true, Placement: "bottom"}
 	var options struct {
 		Legend struct {
@@ -258,6 +258,8 @@ func parseVisualOptions(optionsRaw, fieldConfigRaw json.RawMessage) (Legend, str
 				FixedColor string `json:"fixedColor"`
 				Mode       string `json:"mode"`
 			} `json:"color"`
+			Unit       string `json:"unit"`
+			Thresholds thresholdConfigJSON
 		} `json:"defaults"`
 		Overrides []struct {
 			Matcher struct {
@@ -271,7 +273,7 @@ func parseVisualOptions(optionsRaw, fieldConfigRaw json.RawMessage) (Legend, str
 		} `json:"overrides"`
 	}
 	if json.Unmarshal(fieldConfigRaw, &fields) != nil {
-		return legend, "", nil
+		return legend, "", nil, fields.Defaults.Unit, nil
 	}
 	color := ""
 	if fields.Defaults.Color.Mode == "fixed" {
@@ -290,7 +292,32 @@ func parseVisualOptions(optionsRaw, fieldConfigRaw json.RawMessage) (Legend, str
 			}
 		}
 	}
-	return legend, color, overrides
+	return legend, color, overrides, fields.Defaults.Unit, parseThresholds(fields.Defaults.Thresholds)
+}
+
+type thresholdConfigJSON struct {
+	Steps []thresholdStepJSON `json:"steps"`
+}
+
+type thresholdStepJSON struct {
+	Color string          `json:"color"`
+	Value json.RawMessage `json:"value"`
+}
+
+func parseThresholds(config thresholdConfigJSON) []Threshold {
+	steps := make([]Threshold, 0, len(config.Steps))
+	for _, step := range config.Steps {
+		if step.Color == "" {
+			continue
+		}
+		threshold := Threshold{Color: step.Color}
+		var value float64
+		if len(step.Value) > 0 && string(step.Value) != "null" && json.Unmarshal(step.Value, &value) == nil {
+			threshold.Value = &value
+		}
+		steps = append(steps, threshold)
+	}
+	return steps
 }
 
 func fixedColor(raw json.RawMessage) string {

@@ -111,3 +111,42 @@ func TestParseVariableOptions(t *testing.T) {
 		t.Fatalf("unexpected variable options: %+v", variable)
 	}
 }
+
+func TestParsePanelUnitAndThresholds(t *testing.T) {
+	parsed, err := Parse([]byte(`{
+        "title": "Units",
+        "panels": [{
+            "type": "stat",
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent",
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {"color": "green", "value": null},
+                            {"color": "orange", "value": 70},
+                            {"color": "red", "value": 90}
+                        ]
+                    }
+                }
+            }
+        }]
+    }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	panel := parsed.Panels[0]
+	if panel.Unit != "percent" {
+		t.Fatalf("unexpected unit: %q", panel.Unit)
+	}
+	if len(panel.Thresholds) != 3 {
+		t.Fatalf("unexpected thresholds: %+v", panel.Thresholds)
+	}
+	if panel.Thresholds[0].Color != "green" || panel.Thresholds[0].Value != nil {
+		t.Fatalf("unexpected base threshold: %+v", panel.Thresholds[0])
+	}
+	orange := 70.0
+	if panel.Thresholds[1].Color != "orange" || panel.Thresholds[1].Value == nil || *panel.Thresholds[1].Value != orange {
+		t.Fatalf("unexpected orange threshold: %+v", panel.Thresholds[1])
+	}
+}

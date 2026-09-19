@@ -421,6 +421,65 @@ func TestStatPanelRendersReducedValue(t *testing.T) {
 	}
 }
 
+func TestFormatStatValueMatchesGrafanaUnits(t *testing.T) {
+	cases := []struct {
+		value    float64
+		unit     string
+		expected string
+	}{
+		{85.25, "percent", "85.25%"},
+		{0.85, "percentunit", "85%"},
+		{1024, "bytes", "1.024kB"},
+		{1500000, "bps", "1.5Mb"},
+		{90, "s", "1m30s"},
+		{450, "ms", "450ms"},
+		{42.5, "", "42.5"},
+	}
+	for _, tc := range cases {
+		if got := formatStatValue(tc.value, tc.unit); got != tc.expected {
+			t.Fatalf("formatStatValue(%v, %q) = %q, want %q", tc.value, tc.unit, got, tc.expected)
+		}
+	}
+}
+
+func TestStatThresholdColorFollowsGrafanaSteps(t *testing.T) {
+	base := []dashboard.Threshold{
+		{Color: "green"},
+		{Color: "orange", Value: floatPtr(70)},
+		{Color: "red", Value: floatPtr(90)},
+	}
+	if got := thresholdColor(10, base); got != "green" {
+		t.Fatalf("expected green below the first bound, got %q", got)
+	}
+	if got := thresholdColor(75, base); got != "orange" {
+		t.Fatalf("expected orange between bounds, got %q", got)
+	}
+	if got := thresholdColor(120, base); got != "red" {
+		t.Fatalf("expected red above the last bound, got %q", got)
+	}
+}
+
+func floatPtr(value float64) *float64 { return &value }
+
+func TestStatPanelFormatsUnitsAndThresholdColors(t *testing.T) {
+	m := New(fakeSource{}, fakeQuerier{}, Options{})
+	m.queryResults[queryKey(0, 0)] = prometheus.Result{Series: []prometheus.Series{{
+		Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 94}},
+	}}}
+	panel := dashboard.Panel{
+		Type:    "stat",
+		Unit:    "percent",
+		Color:   "",
+		Targets: []dashboard.Target{{Expr: "query_stat"}},
+	}
+	rendered := renderStatResult(prometheus.Result{Series: []prometheus.Series{{
+		Samples: []prometheus.Sample{{Timestamp: time.Now(), Value: 92.4}},
+	}}}, 50, 10, "", panel)
+	if !strings.Contains(rendered, "92.4%") {
+		t.Fatalf("expected unit formatted stat value, got %q", rendered)
+	}
+}
+
 func TestTablePanelRendersLatestSamplesWithLabelColumns(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m.queryResults[queryKey(0, 0)] = prometheus.Result{Series: []prometheus.Series{
