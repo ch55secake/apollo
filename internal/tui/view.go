@@ -21,6 +21,8 @@ func (m Model) View() string {
 		return m.listView()
 	case dashboardDetailScreen:
 		return m.dashboardView()
+	case variableScreen:
+		return m.variableView()
 	case queryScreen:
 		return m.queryView()
 	case connectionScreen:
@@ -123,7 +125,28 @@ func (m Model) dashboardView() string {
 	}
 	meta := fmt.Sprintf("%d panels   %s to %s", len(m.dashboard.Panels), from, to)
 	body := m.dashboardScroll.View()
-	return m.shell("Dashboard", m.dashboard.Title+"  "+apolloTheme.Muted.Render(meta), body, "j/k move   enter inspect query   r refresh   esc catalog   q quit")
+	return m.shell("Dashboard", m.dashboard.Title+"  "+apolloTheme.Muted.Render(meta), body, "j/k move   enter inspect query   v variables   r refresh   esc catalog   q quit")
+}
+
+func (m Model) variableView() string {
+	if m.dashboard == nil || len(m.dashboard.Variables) == 0 {
+		return m.centeredShell("Dashboard variables", "", apolloTheme.Muted.Render("This dashboard has no selectable variables."), "esc back   q quit")
+	}
+	rows := []string{apolloTheme.Section.Render("DASHBOARD VARIABLES")}
+	for index, variable := range m.dashboard.Variables {
+		name := variable.Label
+		if name == "" {
+			name = variable.Name
+		}
+		value := emptyDash(variable.Current)
+		row := apolloTheme.Muted.Render(name) + "  " + apolloTheme.Badge.Render(value)
+		if index == m.selectedVariable {
+			row = apolloTheme.MenuSelected.Width(max(1, m.bodyContentWidth()-2)).Render("▸ " + row)
+		}
+		rows = append(rows, row)
+	}
+	body := strings.Join(rows, "\n")
+	return m.centeredShell("Dashboard variables", "Changes refresh all dashboard queries", body, "j/k variable   h/l value   r refresh   esc back   q quit")
 }
 
 func (m Model) queryView() string {
@@ -185,6 +208,7 @@ func (m Model) helpContent() string {
 		apolloTheme.Section.Render("DASHBOARD WORKSPACE"),
 		shortcutRow("j / k", "select a panel"),
 		shortcutRow("enter", "inspect a panel query"),
+		shortcutRow("v", "change dashboard variable values"),
 		shortcutRow("r", "refresh panel data"),
 		shortcutRow("esc", "return to the dashboard catalog"),
 		"",

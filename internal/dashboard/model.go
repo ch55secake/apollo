@@ -102,6 +102,7 @@ type Variable struct {
 	Type    string
 	Query   string
 	Current string
+	Values  []string
 }
 
 func ExpandQuery(query string, variables []Variable) string {
