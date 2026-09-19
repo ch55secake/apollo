@@ -23,6 +23,8 @@ func (m Model) View() string {
 		return m.dashboardView()
 	case variableScreen:
 		return m.variableView()
+	case timeRangeScreen:
+		return m.timeRangeView()
 	case queryScreen:
 		return m.queryView()
 	case connectionScreen:
@@ -125,7 +127,21 @@ func (m Model) dashboardView() string {
 	}
 	meta := fmt.Sprintf("%d panels   %s to %s", len(m.dashboard.Panels), from, to)
 	body := m.dashboardScroll.View()
-	return m.shell("Dashboard", m.dashboard.Title+"  "+apolloTheme.Muted.Render(meta), body, "j/k move   enter inspect query   v variables   r refresh   esc catalog   q quit")
+	return m.shell("Dashboard", m.dashboard.Title+"  "+apolloTheme.Muted.Render(meta), body, "j/k move   enter inspect query   v variables   t time range   r refresh   esc catalog   q quit")
+}
+
+func (m Model) timeRangeView() string {
+	rows := []string{apolloTheme.Section.Render("TIME RANGE")}
+	for index, preset := range timeRangePresets {
+		row := preset + " to now"
+		if index == m.selectedTimeRange {
+			row = apolloTheme.MenuSelected.Width(max(1, m.bodyContentWidth()-2)).Render("▸ " + row)
+		} else {
+			row = apolloTheme.Muted.Render("  " + row)
+		}
+		rows = append(rows, row)
+	}
+	return m.centeredShell("Time range", "Relative ranges refresh dashboard queries", strings.Join(rows, "\n"), "j/k select   enter apply   esc back   q quit")
 }
 
 func (m Model) variableView() string {
@@ -209,6 +225,7 @@ func (m Model) helpContent() string {
 		shortcutRow("j / k", "select a panel"),
 		shortcutRow("enter", "inspect a panel query"),
 		shortcutRow("v", "change dashboard variable values"),
+		shortcutRow("t", "change the dashboard time range"),
 		shortcutRow("r", "refresh panel data"),
 		shortcutRow("esc", "return to the dashboard catalog"),
 		"",
