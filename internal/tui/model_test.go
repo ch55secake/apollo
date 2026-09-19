@@ -294,6 +294,28 @@ func TestRenderChartFitsRequestedWidth(t *testing.T) {
 	}
 }
 
+func TestSeriesDisplayNameMatchesGrafanaLegendTemplate(t *testing.T) {
+	labels := map[string]string{"__name__": "http_requests_total", "instance": "api-1", "job": "api"}
+	if got := seriesDisplayName(labels, "{{job}} / {{ instance }}"); got != "api / api-1" {
+		t.Fatalf("unexpected Grafana-style legend: %q", got)
+	}
+	if got := seriesDisplayName(labels, ""); got != `{__name__="http_requests_total",instance="api-1",job="api"}` {
+		t.Fatalf("unexpected default legend: %q", got)
+	}
+}
+
+func TestRenderChartIncludesSeriesLegendWhenSpaceAllows(t *testing.T) {
+	series := []prometheus.Series{{
+		Labels:  map[string]string{"instance": "api-1"},
+		Samples: []prometheus.Sample{{Timestamp: time.Now().Add(-time.Minute), Value: 1}, {Timestamp: time.Now(), Value: 2}},
+	}}
+	rendered := renderChartWithLegend(series, 48, 10, "{{instance}}")
+	if !strings.Contains(rendered, "api-1") {
+		t.Fatalf("expected a visible series legend, got %q", rendered)
+	}
+	assertViewWidth(t, rendered, 48)
+}
+
 func TestModelKeepsSelectedPanelVisible(t *testing.T) {
 	m := New(fakeSource{}, fakeQuerier{}, Options{})
 	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 15})
