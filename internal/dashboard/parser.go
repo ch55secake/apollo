@@ -47,10 +47,10 @@ type templatingJSON struct {
 }
 
 type variableJSON struct {
-	Name    string `json:"name"`
-	Label   string `json:"label"`
-	Type    string `json:"type"`
-	Query   string `json:"query"`
+	Name    string          `json:"name"`
+	Label   string          `json:"label"`
+	Type    string          `json:"type"`
+	Query   json.RawMessage `json:"query"`
 	Current struct {
 		Text  json.RawMessage `json:"text"`
 		Value json.RawMessage `json:"value"`
@@ -137,7 +137,7 @@ func Parse(data []byte) (Dashboard, error) {
 		}
 		dashboard.Variables = append(dashboard.Variables, Variable{
 			Name: variable.Name, Label: variable.Label, Type: variable.Type,
-			Query: variable.Query, Current: current, Values: values,
+			Query: variableQueryValue(variable.Query), Current: current, Values: values,
 		})
 	}
 	return dashboard, nil
@@ -163,6 +163,32 @@ func variableCurrentValue(raw json.RawMessage) string {
 	var values []string
 	if json.Unmarshal(raw, &values) == nil {
 		return strings.Join(values, ",")
+	}
+	return ""
+}
+
+// variableQueryValue extracts the query text from a templating variable.
+// Grafana stores the query as a plain string in classic dashboards, as an
+// object with a "query" or "expr" field in newer schema versions, or as other
+// non-string shapes that must not abort dashboard parsing.
+func variableQueryValue(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var query string
+	if json.Unmarshal(raw, &query) == nil {
+		return query
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) == nil {
+		for _, key := range []string{"query", "expr"} {
+			if value, ok := object[key]; ok {
+				if text := variableCurrentValue(value); text != "" {
+					return text
+				}
+			}
+		}
+		return ""
 	}
 	return ""
 }

@@ -112,6 +112,59 @@ func TestParseVariableOptions(t *testing.T) {
 	}
 }
 
+func TestParseObjectFormVariableQuery(t *testing.T) {
+	parsed, err := Parse([]byte(`{
+        "title": "Queries",
+        "templating": {
+            "list": [
+                {
+                    "name": "classic",
+                    "type": "custom",
+                    "current": {"value": "api"},
+                    "query": "label_values(up, job)"
+                },
+                {
+                    "name": "modern",
+                    "type": "query",
+                    "current": {"value": "api"},
+                    "query": {"query": "label_values(up, job)", "refId": "StandardVariableQuery"}
+                },
+                {
+                    "name": "expr",
+                    "type": "query",
+                    "current": {"value": "api"},
+                    "query": {"expr": "label_values(up, job)", "editorMode": 1}
+                },
+                {
+                    "name": "unsupported",
+                    "type": "query",
+                    "current": {"value": "api"},
+                    "query": {"keys": [], "refId": "x"}
+                }
+            ]
+        }
+    }`))
+	if err != nil {
+		t.Fatalf("dashboard with object templating queries should parse: %v", err)
+	}
+	byName := make(map[string]string)
+	for _, variable := range parsed.Variables {
+		byName[variable.Name] = variable.Query
+	}
+	if got := byName["classic"]; got != "label_values(up, job)" {
+		t.Fatalf("unexpected classic string query: %q", got)
+	}
+	if got := byName["modern"]; got != "label_values(up, job)" {
+		t.Fatalf("unexpected object query value: %q", got)
+	}
+	if got := byName["expr"]; got != "label_values(up, job)" {
+		t.Fatalf("unexpected expr query value: %q", got)
+	}
+	if got := byName["unsupported"]; got != "" {
+		t.Fatalf("expected empty query for unsupported shape, got %q", got)
+	}
+}
+
 func TestParsePanelUnitAndThresholds(t *testing.T) {
 	parsed, err := Parse([]byte(`{
         "title": "Units",
